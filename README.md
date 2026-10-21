@@ -4,7 +4,7 @@ A local system for researching Etsy digital-product opportunities. It will gathe
 
 ## Current status
 
-This repository is an architecture baseline. It contains no live Etsy, Gemini, OpenAI, persistence, or image-generation integrations.
+The Halloween playground now includes a durable simulated research workflow across the orchestrator, analysis worker and archive. A separately budgeted read-only script has inspected real Etsy search responses. The runtime workflow still uses synthetic evidence. Gemini, OpenAI and image generation remain disabled.
 
 ## Planned system
 
@@ -35,4 +35,39 @@ mvn verify
 ```
 
 Each service produces its own executable Spring Boot JAR and uses a distinct default local port. Provider integrations are disabled in the baseline configuration.
+
+## Exercise the simulated workflow
+
+After building, run the three JARs in separate terminals from the repository root:
+
+```bash
+java -jar services/analysis-service/target/analysis-service-0.1.0-SNAPSHOT.jar
+java -jar services/research-archive-service/target/research-archive-service-0.1.0-SNAPSHOT.jar
+java -jar services/research-orchestrator/target/research-orchestrator-0.1.0-SNAPSHOT.jar
+```
+
+Default ports are 8081 (orchestrator), 8082 (analysis), 8083 (content shell), and 8084 (archive). Each participating service owns a separate H2 file under ignored `data/`. Database URLs and service base URLs are configurable through the environment. Run one instance per service.
+
+```bash
+curl -i -X POST http://localhost:8081/v1/research-runs \\
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: halloween-demo-1' \\
+  --data '{"query":"halloween scavenger hunt printable","scenario":"FAST"}'
+```
+
+Follow the returned Location with GET. Fetch `/v1/research-runs/{id}/report` after SUCCEEDED; DELETE the run resource to request cancellation. FAST, SLOW (30 seconds), and FAIL scenarios are available. Query text labels the simulation; it does not query Etsy or alter the fixed synthetic cohort. Reports identify their source and never declare a verified opportunity.
+
+Run cross-process acceptance checks after `mvn verify`:
+
+```bash
+python3 scripts/verify_workflow.py
+python3 -m unittest discover -s scripts -p 'test_*.py'
+```
+
+This uses temporary databases and ports, tests crash recovery and retries, and makes no external API calls.
+
+## Etsy research findings
+
+See the [Halloween data and analysis plan](docs/research/halloween-data-and-analysis-plan.md) and [actual quota/usage record](docs/provider-usage/2026-10-21-etsy-discovery.md). They distinguish observations from hypotheses and define deterministic versus model analysis responsibilities. Near-zero production cost is excluded from the opportunity rubric.
+
+`scripts/etsy_probe.py` performs at most five requests per invocation within a six-attempt local rolling-day cap, using a credential-file argument. It is an explicit live discovery tool, not part of the default tests. Raw responses and its persisted rate ledger stay in ignored `data/`.
 

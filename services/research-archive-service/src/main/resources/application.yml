@@ -1,4 +1,11 @@
 spring:
+  datasource:
+    url: ${ARCHIVE_DB_URL:jdbc:h2:file:./data/archive;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0}
+    username: sa
+    password: ""
+  sql:
+    init:
+      mode: never
   application:
     name: research-archive-service
 server:
