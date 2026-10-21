@@ -107,3 +107,13 @@ The research command enforces a 100-request rolling-day local Etsy cap, two-seco
 
 See the [live business-stage results and daily cost forecast](docs/research/2026-10-21-business-analysis-run.md). The final run found 633 usable digital listings; all three proposed experiments remain LOW confidence. Measured text analysis costs about USD 0.112/day, or USD 3.36 per thirty daily runs, excluding compute and human involvement.
 
+## Agent versus API product reasoning
+
+The next experiment collected 5,000 digital listings, 50 shop profiles/review samples and 20 targeted listing-review samples. The [agent's specific-product analysis](docs/research/2026-10-22-agent-baseline.md) was frozen before implementation or OpenAI calls. A separate text-model pipeline scans the corpus, retrieves original evidence, defines specific products and critically revises them. Code validates structure/source IDs/arithmetic and tracks quotas/costs; it does not score or recommend business opportunities. The legacy deterministic business endpoint is not used by this comparison.
+
+Follow the [comparison commands and evidence protocol](docs/research/product-api-protocol.md). Model runs share one frozen corpus without cleanup or Etsy calls between providers; a fresh `collect-comparison` run erases previous research outputs but retains operational ledgers/docs/fixtures. Each provider is explicitly selected and cannot silently switch to the other. Gemini's current default text model is `gemini-3.5-flash-lite`, with a local twelve-attempt/Pacific-day guard and at least 61 seconds spacing. Old five-call/2.5-model notes describe the earlier experiment, not this protocol.
+
+The comparison has a persistent additional USD 1.63 OpenAI allowance within the original USD 2 total stage ceiling. It is an explicit evaluation CLI, not yet a live durable-orchestrator workflow or publishing system. No images are generated.
+
+Read the [separately attributed results and critical comparison](docs/research/2026-10-22-agent-api-comparison.md): both providers completed; new OpenAI testing cost USD 0.55, Gemini used the confirmed free text route. Passing games and handprints recur across recommendations, but agreement is not proof of sales potential, and semantic weaknesses remain visible rather than being hidden by JSON validation.
+
