@@ -2,6 +2,7 @@ package local.myhome.marketresearch.tools;
 
 import java.net.*;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Map;
 import org.springframework.boot.*;
@@ -16,7 +17,7 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootApplication
-@EnableConfigurationProperties(ResearchToolsApplication.Settings.class)
+@EnableConfigurationProperties({ResearchToolsApplication.Settings.class,ModelSettings.class})
 public class ResearchToolsApplication {
     @ConfigurationProperties("research.tools")
     public record Settings(@DefaultValue(".") Path root, @DefaultValue("help") String command,
@@ -35,16 +36,26 @@ public class ResearchToolsApplication {
             System.exit(1);
         }
     }
-    @Bean ApplicationRunner execute(Settings settings, Environment environment, ObjectMapper json) {
+    @Bean ApplicationRunner execute(Settings settings, ModelSettings models, Environment environment, ObjectMapper json) {
         return arguments -> {
             Path root = settings.root().toAbsolutePath().normalize();
             if ("help".equals(settings.command())) {
-                System.out.println("Commands: replay (offline), collect and discover (require research.tools.live-enabled=true).");
+                System.out.println("Commands: replay/forecast (offline), provider-check (metadata), research/collect/discover (require research.tools.live-enabled=true).");
                 return;
             }
             Map<String,Object> result;
-            if ("replay".equals(settings.command())) result = new CohortReplay(json).run(root);
-            else if ("collect".equals(settings.command()) || "discover".equals(settings.command())) {
+            if ("provider-check".equals(settings.command())) {
+                result = new ModelPreflight(ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),
+                    ProviderHttp.client("https://api.openai.com/v1",environment),json,models).run(root);
+            }
+            else if ("replay".equals(settings.command())) result = new CohortReplay(json).run(root);
+            else if ("forecast".equals(settings.command())) {
+                result=ProductionForecast.daily(
+                    json.readValue(Files.readString(root.resolve("data/provider-ledgers/openai-stage.json")),Map.class),
+                    json.readValue(Files.readString(root.resolve("data/halloween-run/manifest.json")),Map.class));
+                PrivateJson.write(root.resolve("data/halloween-run/production-forecast.json"),result,json);
+            }
+            else if ("collect".equals(settings.command()) || "discover".equals(settings.command()) || "research".equals(settings.command())) {
                 if (!settings.liveEnabled()) throw new ToolFailure("Live research calls are disabled.");
                 var factory = new SimpleClientHttpRequestFactory() {
                     @Override protected void prepareConnection(HttpURLConnection connection,String method)
@@ -65,9 +76,16 @@ public class ResearchToolsApplication {
                 var gateway = new EtsyGateway(client,json,() -> EtsyCredentials.load(settings.credentialsFile(),environment));
                 var ledger = new QuotaLedger(root.resolve("data/etsy-discovery"),json,System::currentTimeMillis,Thread::sleep);
                 var research = new EtsyResearch(gateway,ledger,json);
-                result = "collect".equals(settings.command())
-                    ? research.collect(root.resolve("data/etsy-cohort-1000"))
-                    : research.discover(root.resolve("data/etsy-discovery"));
+                if ("research".equals(settings.command())) {
+                    var reasoning=new ResearchModels(ProviderHttp.client("https://api.openai.com/v1",environment),
+                        ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),models,json,root);
+                    result=new HalloweenResearchRun(root,gateway,ledger,reasoning,json).run();
+                } else {
+                    RunWorkspace.clean(root);
+                    result = "collect".equals(settings.command())
+                        ? research.collect(root.resolve("data/etsy-cohort-1000"))
+                        : research.discover(root.resolve("data/etsy-discovery"));
+                }
             } else throw new ToolFailure("Unknown research tool command.");
             System.out.println(json.writerWithDefaultPrettyPrinter().writeValueAsString(result));
         };
