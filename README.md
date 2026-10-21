@@ -26,3 +26,13 @@ All backend services are independently deployable but live in one repository. Lo
 
 Architecture decisions live under `docs/adr/`. Provider quota checks will be recorded under `docs/provider-usage/` before the first potentially billable calls.
 
+## Build
+
+Requirements: JDK 21 and Maven 3.6.3 or newer.
+
+```bash
+mvn verify
+```
+
+Each service produces its own executable Spring Boot JAR and uses a distinct default local port. Provider integrations are disabled in the baseline configuration.
+

@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: research-orchestrator
+server:
+  port: ${ORCHESTRATOR_PORT:8081}
+market-research:
+  providers:
+    etsy-enabled: false
+  services:
+    analysis-base-url: ${ANALYSIS_BASE_URL:http://localhost:8082}
+    content-base-url: ${CONTENT_BASE_URL:http://localhost:8083}
+    archive-base-url: ${ARCHIVE_BASE_URL:http://localhost:8084}

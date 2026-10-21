@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: content-service
+server:
+  port: ${CONTENT_PORT:8083}
+market-research:
+  providers:
+    gemini-enabled: false
+    openai-enabled: false
+    image-generation-enabled: false

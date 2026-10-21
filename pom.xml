@@ -16,6 +16,10 @@
     <name>Market Research</name>
     <modules>
         <module>contracts</module>
+        <module>services/research-orchestrator</module>
+        <module>services/analysis-service</module>
+        <module>services/content-service</module>
+        <module>services/research-archive-service</module>
     </modules>
     <properties>
         <java.version>21</java.version>

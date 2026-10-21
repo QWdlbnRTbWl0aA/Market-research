@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: research-archive-service
+server:
+  port: ${ARCHIVE_PORT:8084}
+market-research:
+  archive:
+    artifacts-directory: ${ARCHIVE_ARTIFACTS_DIR:./data/artifacts}

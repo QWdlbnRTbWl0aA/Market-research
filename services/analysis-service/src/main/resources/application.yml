@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: analysis-service
+server:
+  port: ${ANALYSIS_PORT:8082}
+market-research:
+  providers:
+    gemini-enabled: false
+    openai-enabled: false
