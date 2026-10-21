@@ -34,13 +34,13 @@ def read_credentials(path):
     return values["ETSY_API_KEY"] + ":" + values["ETSY_API_SECRET"]
 
 
-def request(path, label, credential):
+def request(path, label, credential, max_calls=6, output_directory=None):
     ledger_path = DATA / "budget.json"
     ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {"calls": []}
     now = time.time()
     ledger["calls"] = [stamp for stamp in ledger["calls"] if stamp > now - 86400]
-    if len(ledger["calls"]) >= 6:
-        raise SystemExit("Local six-request rolling-day budget exhausted; no request sent.")
+    if len(ledger["calls"]) >= max_calls:
+        raise SystemExit("Local rolling-day request budget exhausted; no request sent.")
     if ledger.get("blocked_until", 0) > now:
         raise SystemExit("Provider cooldown is active; no request sent.")
     if label != "quota-probe":
@@ -72,7 +72,8 @@ def request(path, label, credential):
         raise SystemExit("Etsy transport or decoding failed; stopped without retry.") from None
     ledger["quota"] = headers
     ledger_path.write_text(json.dumps(ledger, indent=2))
-    (DATA / (label + ".json")).write_text(json.dumps(body, indent=2))
+    destination = output_directory if output_directory is not None else DATA
+    (destination / (label + ".json")).write_text(json.dumps(body, indent=2))
     return body, headers
 
 
