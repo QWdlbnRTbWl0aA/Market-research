@@ -4,7 +4,7 @@ A local system for researching Etsy digital-product opportunities. It will gathe
 
 ## Current status
 
-The Halloween playground now includes a durable simulated research workflow across the orchestrator, analysis worker and archive. A separately budgeted read-only script has inspected real Etsy search responses. The runtime workflow still uses synthetic evidence. Gemini, OpenAI and image generation remain disabled.
+The Halloween playground includes durable simulated orchestration and a real-cohort deterministic analysis endpoint. A fresh 1000-listing Etsy collection has been processed through that endpoint. The orchestrator's demonstration workflow still uses synthetic evidence. Gemini, OpenAI and image generation remain disabled.
 
 ## Planned system
 
@@ -67,7 +67,17 @@ This uses temporary databases and ports, tests crash recovery and retries, and m
 
 ## Etsy research findings
 
-See the [Halloween data and analysis plan](docs/research/halloween-data-and-analysis-plan.md) and [actual quota/usage record](docs/provider-usage/2026-10-21-etsy-discovery.md). They distinguish observations from hypotheses and define deterministic versus model analysis responsibilities. Near-zero production cost is excluded from the opportunity rubric.
+See the [analysis methodology](docs/research/halloween-data-and-analysis-plan.md), [experiment operating policy](docs/research/experiment-operating-policy.md) and [1000-listing run](docs/research/2026-10-21-cohort-1000-run.md). The objective is expected recurring receipts relative to total operating cost, including AI/API, compute and human involvement. Cheap automated publication experiments do not require pre-production demand proof.
 
 `scripts/etsy_probe.py` performs at most five requests per invocation within a six-attempt local rolling-day cap, using a credential-file argument. It is an explicit live discovery tool, not part of the default tests. Raw responses and its persisted rate ledger stay in ignored `data/`.
+
+## Deterministic cohort analysis
+
+`POST /v1/etsy-cohort-analyses` on the analysis service accepts a query, UTC observation timestamp and 1..1000 raw listing objects. It returns normalized digital metrics, currency-specific distributions, missingness and automation hints. It makes no provider calls and estimates no sales from views.
+
+`python3 scripts/analyze_etsy_cohort.py` replays the saved live cohort through a temporary packaged analysis service without consuming more Etsy quota. Results remain in ignored `data/etsy-cohort-1000/`.
+
+`python3 scripts/collect_etsy_cohort.py /path/to/etsy.env` explicitly collects a new cohort only if none exists. It uses a quota probe, up to fourteen 100-result pages, a 30-attempt local rolling-day cap shared with the discovery ledger, two-second spacing and a daily reserve. Do not run it as part of ordinary testing.
+
+JUnit unit tests run through Maven Surefire; Spring Boot HTTP integration tests named `*IT` run through Maven Failsafe during `mvn verify`. The HTTP integration test processes 1000 synthetic listings without any API credentials. The separately recorded live test processes 1000 actual Etsy listings.
 

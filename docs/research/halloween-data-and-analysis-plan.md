@@ -37,33 +37,29 @@ Reference: [Etsy API reference](https://developers.etsy.com/documentation/refere
 | Deterministic code | Validated API responses and dated repeated observations | Digital-type classification, deduplication, currency-safe pricing, distinct shops, query overlap, seller concentration, tag frequencies, missingness, engagement deltas | Reproducible facts, coverage/bias warnings, evidence IDs, comparable cohorts |
 | General text LLM — Gemini free tier first | Bounded normalized title/tag/description snippets with listing IDs and an explicit output schema | Extract audience, occasion, file format, editable/personalized features, semantic clusters; propose narrower queries | Searchable product taxonomy and buyer-intent hypotheses, each grounded in supplied evidence |
 | Reasoning-capable model | Deterministic cohort summaries, extracted attributes, seasonal context, cited evidence, and candidate product definitions | Compare hypotheses, identify unmet needs and counterevidence, propose differentiated products and falsifiable validation steps | A reasoned opportunity thesis with assumptions, uncertainty, and reasons to reject it |
-| Deterministic evaluator + human review | Validated model output, evidence completeness and the agreed rubric | Reject uncited assertions and unsupported numeric claims, apply confidence gates, rank candidates for a small validation experiment | Auditable shortlist rather than an unverified sales forecast |
+| Deterministic evaluator + exception review | Validated model output, explicit operating budgets and published-product outcomes | Reject invented numeric claims, estimate total cost including human time, choose cheap experiments, learn which templates warrant further spending | An auditable experiment queue and portfolio feedback loop |
 
 Model output is untrusted structured input: validate schemas and evidence IDs, forbid following instructions embedded in listing descriptions, limit token/context budgets, cache by content and prompt/model version, and log token/cost usage without credentials or machine details. Models do not calculate canonical counts, invent sales, or upgrade weak evidence to verified demand. Cheap/free quota selects execution order, not confidence.
 
 No model calls are needed to validate the current workflow. Before any later Gemini/OpenAI call, inspect account quota/current usage, record the result, and set a local call/token budget. Use available Gemini free allowance first. A reasoning stage may use Gemini where suitable; it does not automatically imply OpenAI.
 
-## What qualifies as a good opportunity?
+## Opportunity methodology v2: operating economics
 
-Production cost is assumed approximately zero and excluded from scoring. Attention, discovery, buyer value, seasonality, support effort, and uncertainty still affect whether a product is worth publishing. Revenue estimates must account for platform/payment fees when modeled later; they are not production costs.
+Optimize expected recurring portfolio receipts relative to total operating cost over the same stated horizon (default planning horizon: 12 months, with monthly seasonal breakdowns). Recurring means continuing portfolio sales, not assumed subscriptions or repeat purchases by the same buyer.
 
-Use a two-stage decision:
+Total cost includes research, AI/API tokens, compute, publication/platform/payment fees, generation, maintenance, support, refunds and especially manual involvement valued at an explicitly configured hourly rate. Allocate shared automation development/setup across the portfolio and record allocation assumptions. Marginal generation can fall to cents; it must not hide human time or overhead.
 
-1. **Evidence gate:** distinguish `INSUFFICIENT_EVIDENCE`, `RESEARCH_CANDIDATE`, `VALIDATION_CANDIDATE`, and `REJECT`. The current four one-result samples qualify only for further research.
-2. **Prioritization:** after coverage is adequate, compare demand evidence (35%), achievable competitive position (25%), meaningful differentiation/buyer value (25%), and seasonal/discovery fit (15%). These are proposed, versioned prioritization weights, not calibrated probability-of-success estimates. Confidence is reported separately and cannot be compensated for by a high score.
+For explicit scenarios calculate expected gross receipts / total operating cost and expected surplus = expected gross receipts - total operating cost. Record currency and horizon consistently; do not subtract fees twice. Unknown inputs stay unknown. A zero-cost scenario has an undefined efficiency ratio, not infinite priority. Portfolio decisions consider both efficiency and expected surplus under spending and human-time budgets, so an attractive ratio alone does not justify negligible recurring value.
 
-A validation candidate should have all of:
+Products are cheap experiments. Remove the former mandatory sample/shop-count/two-window gates and the arbitrary 35/25/25/15 weighting. Weak market evidence reduces confidence; it does not automatically block an inexpensive, automated publication experiment. Low hit rate is acceptable when portfolio winners cover experiments and ongoing operating cost.
 
-- A specific digital product, buyer, occasion, and reason to choose it over sampled alternatives.
-- Engagement evidence spread across several independent shops, with repeat observations or other corroboration. Lifetime views alone cannot pass this gate.
-- A documented gap in comparable products, rather than merely a low-count keyword phrase.
-- A plausible route to discovery and price positioning supported by comparable listings in a consistent currency.
-- Enough time for the buyer's seasonal purchase window, with a clear next experiment.
-- No unresolved dependency on third-party characters/brands/assets for the product thesis. Flag these for review; a model cannot grant rights.
+Prefer reusable standard-download templates and automated distribution/measurement over personalized products requiring repeated manual work. Customization flags are workload hints, not proof that the work cannot be automated. The deterministic queue sorts these hints transparently; it does not invent revenue predictions.
 
-Initially require at least 20 relevant digital listings across at least five shops where available, two dated observation windows, and explicit examination of both stronger and weaker engagement examples before promoting a candidate. These are provisional research-coverage gates, not statistical guarantees. Sparse niches that cannot meet them remain low-confidence candidates for another validation method; do not silently relax the gate.
+Before spending on additional research, ask whether its expected improvement to the publish/stop decision exceeds the added research and delay cost. Stop researching when a bounded publication experiment is cheaper or more informative. When value-of-information inputs are unknown, default to the small automated experiment within configured budgets rather than mandatory evidence gathering.
 
-Suggested next hypotheses, not recommendations: age-specific picture-clue hunts, low-ink classroom games, and language-specific printable activities. The live samples show these categories exist; they do not establish underserved demand.
+Human review should focus on reusable templates, exceptions, aggregate budget changes and decisions with material downside. Do not require per-product review by default. Published performance, rather than extensive pre-production validation, supplies the main learning loop.
+
+The [experiment operating policy](experiment-operating-policy.md) defines accounting, automation and the feedback plan. No publishing or asset generation is performed by the current analysis run.
 
 ## Sampling and validation plan
 
@@ -73,10 +69,10 @@ Suggested next hypotheses, not recommendations: age-specific picture-clue hunts,
 - Use several pages/orderings where supported; report selection bias. A score-sorted first page is not a random sample.
 - Compare original creation age and repeated view/favorite deltas within comparable products. A lifetime count divided by age is at most a rough lifetime average, not current sales velocity.
 - Halloween is strongly seasonal. Observations close to October 31 cannot establish year-round or next-year demand; label the time window and plan pre-season comparisons.
-- Define a low-cost publishing/discovery experiment before claiming commercial success. Marketplace observation alone leaves conversion and acquisition uncertainty.
+- Use cheap publication experiments to learn conversion and acquisition economics. Do not wait for marketplace observations to prove demand; report uncertainty and keep each experiment inside its budget.
 
 ## Implemented versus planned
 
-Implemented now: synthetic deterministic counts, digital filtering, deduplication, unique shops, currency-separated price medians; durable asynchronous orchestration, failure/cancellation/recovery; and the separately budgeted live discovery script.
+Implemented now: synthetic workflow tests plus real-cohort normalization, digital filtering, deduplication, shop concentration, currency-specific price distributions, engagement/missingness, age buckets, normalized tags/title overlap and automation flags. Explicit cost scenarios include manual time; expected receipts remain unknown unless supplied. Durable orchestration and guarded live collection/replay remain available.
 
-Planned: continuous Etsy ingestion, richer sampling, snapshots/deltas, seller concentration, clustering, model extraction/reasoning, opportunity scoring/calibration, and publishing experiments. No production digital assets or images are generated in this increment.
+Planned: published-product performance ingestion, automated experiment budgets and stop rules, snapshots/deltas, semantic clustering, model extraction/reasoning only where worth the cost, and calibrated portfolio economics. No production digital assets or images are generated in this increment.

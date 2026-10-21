@@ -4,6 +4,8 @@
 
 Build a local Etsy marketplace research system that discovers promising digital-product niches, records demand and competition evidence, and eventually produces product recommendations and listing packages.
 
+Optimize expected recurring portfolio receipts relative to total operating cost, including AI/API tokens, compute and especially manual involvement. Favor automated, inexpensive publication experiments and learning from actual performance. Research must justify its incremental cost; do not impose demand-proof or minimum-sample gates before cheap experiments. Low hit rate is acceptable when portfolio economics work. Keep unknown revenue and cost inputs explicit rather than treating them as zero.
+
 Authentication and application security are out of scope while the system remains local-only.
 
 ## Repository workflow

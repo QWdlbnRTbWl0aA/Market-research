@@ -24,6 +24,6 @@ public final class DeterministicAnalyzer {
             medians, "INSUFFICIENT_EVIDENCE", List.of(
                 "Synthetic data validates the workflow; it cannot validate market demand.",
                 "Views and favorites are engagement proxies, not verified sales.",
-                "Production cost is excluded; demand, differentiation, discoverability and timing remain relevant."));
+                "Prioritize recurring portfolio receipts relative to total operating cost, including human involvement; cheap experiments need not await demand proof."));
     }
 }
