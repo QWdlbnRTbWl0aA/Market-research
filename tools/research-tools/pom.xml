@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>local.myhome.marketresearch</groupId>
+        <artifactId>market-research-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+    <artifactId>research-tools</artifactId>
+    <dependencies>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jackson</artifactId></dependency>
+        <dependency><groupId>org.springframework</groupId><artifactId>spring-web</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+        <!-- POM-only dependencies order service packaging before process acceptance tests. -->
+        <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>research-orchestrator</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
+        <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>analysis-service</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
+        <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>research-archive-service</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
+    </dependencies>
+    <build><plugins>
+        <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId><artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+                <systemPropertyVariables><project.root>${maven.multiModuleProjectDirectory}</project.root></systemPropertyVariables>
+            </configuration>
+            <executions><execution><goals><goal>integration-test</goal><goal>verify</goal></goals></execution></executions>
+        </plugin>
+    </plugins></build>
+</project>
