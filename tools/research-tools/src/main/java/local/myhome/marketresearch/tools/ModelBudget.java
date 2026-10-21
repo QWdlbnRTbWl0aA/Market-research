@@ -12,10 +12,17 @@ final class ModelBudget {
     record Outcome(Map<String,Object> value,long inputTokens,long outputTokens) {}
     @FunctionalInterface interface Call {Outcome execute() throws Exception;}
     private final Path directory; private final ObjectMapper json;
-    ModelBudget(Path directory,ObjectMapper json){this.directory=directory;this.json=json;}
+    private final BigDecimal ceiling;
+    private final int inputLimit;
+    ModelBudget(Path directory,ObjectMapper json){this(directory,json,new BigDecimal("2"),150_000);}
+    ModelBudget(Path directory,ObjectMapper json,BigDecimal ceiling,int inputLimit){
+        if(ceiling.signum()<=0 || ceiling.compareTo(new BigDecimal("2"))>0 || inputLimit<1 || inputLimit>750_000)
+            throw new IllegalArgumentException("Invalid provider budget");
+        this.directory=directory;this.json=json;this.ceiling=ceiling;this.inputLimit=inputLimit;
+    }
     @SuppressWarnings("unchecked")
     Map<String,Object> openai(String purpose,int inputByteBound,int outputCap,Call call) throws Exception {
-        if(inputByteBound>150_000 || outputCap>8000) throw new ToolFailure("Model request exceeds local token budget.");
+        if(inputByteBound<0 || inputByteBound>inputLimit || outputCap<1 || outputCap>8000) throw new ToolFailure("Model request exceeds local token budget.");
         PrivateJson.directory(directory);
         try(var channel=FileChannel.open(directory.resolve("openai-stage.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
                 var lock=channel.tryLock()) {
@@ -24,13 +31,14 @@ final class ModelBudget {
             Map<String,Object> state=Files.exists(file)?json.readValue(Files.readString(file),Map.class):new LinkedHashMap<>();
             BigDecimal committed=new BigDecimal(state.getOrDefault("committedUsd",0).toString());
             BigDecimal reservation=cost(inputByteBound+4096,outputCap);
-            if(committed.add(reservation).compareTo(new BigDecimal("2"))>0)
-                throw new ToolFailure("OpenAI stage budget would exceed USD 2; no call sent.");
+            if(committed.add(reservation).compareTo(ceiling)>0)
+                throw new ToolFailure("OpenAI spending ceiling would be exceeded; no call sent.");
             List<Map<String,Object>> calls=new ArrayList<>((List<Map<String,Object>>)state.getOrDefault("calls",List.of()));
             Map<String,Object> event=new LinkedHashMap<>();
             event.put("purpose",purpose);event.put("model","gpt-5.4-mini");event.put("at",Instant.now().toString());
             event.put("reservedUsd",reservation);event.put("status","RESERVED_OR_UNCERTAIN");
             calls.add(event);state.put("calls",calls);state.put("budgetUsd",2);
+            state.put("effectiveCeilingUsd",ceiling);
             state.put("committedUsd",committed.add(reservation));PrivateJson.write(file,state,json);
             Outcome result=call.execute();
             if(result.inputTokens()<0 || result.outputTokens()<0) throw new ToolFailure("Provider usage unavailable; reservation retained.");
