@@ -49,6 +49,8 @@ Authentication and application security are out of scope while the system remain
 - Do not make image-generation calls until the user explicitly lifts the current restriction.
 - The current refinement/business-analysis stage has a persistent USD 2 OpenAI development/testing ceiling. Never reset its ledger during research cleanup or silently extend this authorization to scheduled production.
 - Fresh Halloween live runs must delete previous fetched research outputs using the explicit allowlist, preserving operational ledgers, code, test fixtures and documentation. Offline replay/forecast are not new searches.
+- For agent/API comparisons, freeze the agent's business analysis before implementation/OpenAI calls. Keep agent conclusions out of both providers' prompts. Label agent and API-pipeline results separately; deterministic preparation/validation is not a business recommender.
+- The larger comparison may add at most USD 1.63 to its recorded starting OpenAI cost, also respecting the persistent USD 2 stage ceiling. Do not reset either ledger. The user confirmed Gemini has no payment method; try its free text route explicitly with local limits, and never fall through to OpenAI during a Gemini comparison.
 - Keep refinement lightweight: bounded semantic grouping and query probes, not elaborate regex taxonomies or exhaustive pagination. Business analysis targets modest recurring receipts, price-neutrally, and distinguishes public purchase proxies from unavailable competitor revenue.
 
 ## Engineering conventions

@@ -15,6 +15,45 @@ import tools.jackson.databind.ObjectMapper;
 class ResearchModelsTest {
     @TempDir Path root;
     ObjectMapper json=new ObjectMapper();
+    @Test void geminiThoughtPartsAreNotParsedAsAnswerJsonAndUsageIsRetained() throws Exception {
+        Path key=root.resolve("gemini.env");Files.writeString(key,"GEMINI_LLM_API_KEY=test-only");
+        var settings=new ModelSettings(key,null,"gemini-3.5-flash-lite","gpt-5.4-mini",true);
+        PrivateJson.write(root.resolve("data/provider-ledgers/model-preflight.json"),Map.of("checkedAt",Instant.now().toString(),"geminiMetadataHttp",200,"geminiFreeTierVerified",true),json);
+        var builder=RestClient.builder().baseUrl("https://gemini.invalid");var server=MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://gemini.invalid/models/gemini-3.5-flash-lite:generateContent"))
+            .andRespond(withSuccess(json.writeValueAsString(Map.of("candidates",List.of(Map.of("finishReason","STOP","content",Map.of("parts",List.of(
+                Map.of("thought",true,"text","Not JSON: private reasoning must not be parsed"),Map.of("text","{\"candidates\":[]}"))))),
+                "usageMetadata",Map.of("promptTokenCount",100,"candidatesTokenCount",20))),MediaType.APPLICATION_JSON));
+        var result=new ResearchModels(builder.build(),builder.build(),settings,json,root).askOn("gemini","test","JSON",Map.of(),new java.math.BigDecimal("2"),750_000);
+        assertTrue(result.containsKey("candidates"));
+        Map<?,?> ledger=json.readValue(Files.readString(root.resolve("data/provider-ledgers/gemini-free.json")),Map.class);
+        assertEquals(1,((List<?>)ledger.get("events")).size());server.verify();
+    }
+    @Test void quotaFailureRetainsOnlySafeDiagnosticsAndNeverFallsBack() throws Exception {
+        Path key=root.resolve("gemini.env");Files.writeString(key,"GEMINI_LLM_API_KEY=test-only");
+        var settings=new ModelSettings(key,null,"gemini-3.5-flash-lite","gpt-5.4-mini",true);
+        PrivateJson.write(root.resolve("data/provider-ledgers/model-preflight.json"),Map.of("checkedAt",Instant.now().toString(),"geminiMetadataHttp",200,"geminiFreeTierVerified",true),json);
+        var builder=RestClient.builder().baseUrl("https://gemini.invalid");var server=MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://gemini.invalid/models/gemini-3.5-flash-lite:generateContent"))
+            .andRespond(withStatus(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS).contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":{\"message\":\"private-project-details\",\"details\":[{\"violations\":[{\"quotaValue\":\"0\",\"quotaMetric\":\"generate_content\"}]}]}}"));
+        var models=new ResearchModels(builder.build(),builder.build(),settings,json,root);
+        assertThrows(ToolFailure.class,()->models.askOn("gemini","test","JSON",Map.of(),new java.math.BigDecimal("2"),750_000));
+        assertFalse(Files.readString(root.resolve("data/provider-ledgers/gemini-quota-error.json")).contains("private-project-details"));
+        assertFalse(Files.exists(root.resolve("data/provider-ledgers/openai-stage.json")));server.verify();
+    }
+    @Test void explicitGeminiComparisonNeverFallsBackWhenFreeAllowanceIsExhausted() throws Exception {
+        var settings=new ModelSettings(null,null,"gemini-2.5-flash-lite","gpt-5.4-mini",true);
+        PrivateJson.write(root.resolve("data/provider-ledgers/model-preflight.json"),Map.of("checkedAt",Instant.now().toString(),
+            "geminiMetadataHttp",200,"geminiFreeTierVerified",true,"openAiMetadataHttp",200),json);
+        PrivateJson.write(root.resolve("data/provider-ledgers/gemini-free.json"),Map.of("day",
+            java.time.LocalDate.now(java.time.ZoneId.of("America/Los_Angeles")).toString(),"calls",12),json);
+        var builder=RestClient.builder().baseUrl("https://example.invalid");
+        var server=MockRestServiceServer.bindTo(builder).build();
+        var models=new ResearchModels(builder.build(),builder.build(),settings,json,root);
+        assertThrows(ToolFailure.class,()->models.askOn("gemini","comparison","JSON",Map.of(),new java.math.BigDecimal("1.9995175"),750_000));
+        assertFalse(Files.exists(root.resolve("data/provider-ledgers/openai-stage.json")));server.verify();
+    }
     @Test void unverifiedGeminiTierUsesAuthorizedOpenaiAndRecordsTokens() throws Exception {
         Path key=root.resolve("test.env");Files.writeString(key,"OPENAI_API_KEY=test-only");
         var settings=new ModelSettings(null,key,"gemini-2.5-flash-lite","gpt-5.4-mini",false);
@@ -48,7 +87,7 @@ class ResearchModelsTest {
         PrivateJson.write(root.resolve("data/provider-ledgers/model-preflight.json"),
             Map.of("checkedAt",Instant.now().toString(),"openAiMetadataHttp",200,"geminiMetadataHttp",200,"geminiFreeTierVerified",true),json);
         PrivateJson.write(root.resolve("data/provider-ledgers/gemini-free.json"),Map.of("day",
-            java.time.LocalDate.now(java.time.ZoneId.of("America/Los_Angeles")).toString(),"calls",5),json);
+            java.time.LocalDate.now(java.time.ZoneId.of("America/Los_Angeles")).toString(),"calls",12),json);
         var builder=RestClient.builder().baseUrl("https://example.invalid/v1");
         var server=MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo("https://example.invalid/v1/chat/completions")).andRespond(withSuccess(

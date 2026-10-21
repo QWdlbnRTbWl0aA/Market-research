@@ -10,6 +10,16 @@ import tools.jackson.databind.ObjectMapper;
 
 class ToolsCliIT {
     @TempDir Path directory;
+    @Test void preparesFrozenEvidenceOfflineAndBlocksUnapprovedProviderExecution() throws Exception {
+        var json=new ObjectMapper();ComparisonFixture.create(directory,json);
+        Path root=Path.of(System.getProperty("project.root")),output=directory.resolve("prepare.log");
+        var process=start(root,output,"--research.tools.command=comparison-prepare","--research.tools.root="+directory);
+        assertTrue(process.waitFor(25,TimeUnit.SECONDS));assertEquals(0,process.exitValue());
+        assertTrue(Files.exists(directory.resolve("data/halloween-run/comparison/prepared.json")));
+        process=start(root,output,"--research.tools.command=compare","--research.tools.root="+directory);
+        assertTrue(process.waitFor(25,TimeUnit.SECONDS));assertEquals(1,process.exitValue());
+        assertFalse(Files.exists(directory.resolve("data/provider-ledgers/gemini-free.json")));
+    }
     private Process start(Path root,Path output,String... arguments) throws Exception {
         List<String> command = new ArrayList<>(List.of(
             Path.of(System.getProperty("java.home"),"bin","java").toString(),"-jar",
