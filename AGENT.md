@@ -41,6 +41,7 @@ Authentication and application security are out of scope while the system remain
 
 - Before the first potentially billable call to Etsy, Gemini, or OpenAI, verify available quota and current usage, record the timestamp and result under `docs/provider-usage/`, and establish a local budget/rate guard.
 - Never print, commit, or copy API keys. Use the appropriate files under `/home/smith/env_files/` at runtime.
+- Treat machine hostnames, VPN addresses, network topology and infrastructure identifiers as secrets too. Exclude them from documentation, logs, commits, model inputs and external messages. Generic loopback examples are acceptable.
 - Prefer Gemini's available free quota before using OpenAI for an equivalent operation.
 - Enforce Etsy limits locally with conservative request budgeting, throttling, and response-header reconciliation. Never rely solely on Etsy rejecting excess traffic.
 - Do not make image-generation calls until the user explicitly lifts the current restriction.
