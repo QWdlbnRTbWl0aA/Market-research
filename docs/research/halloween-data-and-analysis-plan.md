@@ -73,6 +73,6 @@ The [experiment operating policy](experiment-operating-policy.md) defines accoun
 
 ## Implemented versus planned
 
-Implemented now: synthetic workflow tests plus real-cohort normalization, digital filtering, deduplication, shop concentration, currency-specific price distributions, engagement/missingness, age buckets, normalized tags/title overlap and automation flags. Explicit cost scenarios include manual time; expected receipts remain unknown unless supplied. Durable orchestration and guarded live collection/replay remain available.
+Implemented now: synthetic workflow tests plus real-cohort normalization, digital filtering, deduplication, shop concentration, currency-specific price distributions, engagement/missingness, age buckets, normalized tags/title overlap and automation flags. Explicit cost scenarios include manual time; expected receipts remain unknown unless supplied. Durable orchestration and guarded live collection/replay remain available through Java/Spring tooling, with all tests under Maven.
 
 Planned: published-product performance ingestion, automated experiment budgets and stop rules, snapshots/deltas, semantic clustering, model extraction/reasoning only where worth the cost, and calibrated portfolio economics. No production digital assets or images are generated in this increment.

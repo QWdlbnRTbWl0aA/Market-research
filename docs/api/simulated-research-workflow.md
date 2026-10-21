@@ -47,4 +47,4 @@ Research-run identity is the business idempotency key for this action. Replaying
 
 ## Verification
 
-`mvn verify` runs the Java tests. `scripts/verify_workflow.py` launches the actual packaged services with isolated databases and performs HTTP acceptance tests for success, duplicate/conflicting submissions, archive replay, cancellation, failure, forced process restarts, report persistence, and transient dependency recovery. `scripts/test_etsy_probe.py` tests discovery quota controls entirely offline.
+`mvn verify` runs all checks in Java. In the research-tools module, Maven Failsafe runs `WorkflowIT` against the actual packaged services with isolated databases, covering success, duplicate/conflicting submissions, archive replay, cancellation, failure, forced process restarts, report persistence and transient dependency recovery. JUnit `EtsyResearchTest` verifies discovery quota and pagination controls using Spring's mocked HTTP server. `ToolsCliIT` verifies the packaged Spring Boot CLI and offline cohort replay.
