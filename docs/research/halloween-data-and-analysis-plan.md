@@ -41,7 +41,7 @@ Reference: [Etsy API reference](https://developers.etsy.com/documentation/refere
 
 Model output is untrusted structured input: validate schemas and evidence IDs, forbid following instructions embedded in listing descriptions, limit token/context budgets, cache by content and prompt/model version, and log token/cost usage without credentials or machine details. Models do not calculate canonical counts, invent sales, or upgrade weak evidence to verified demand. Cheap/free quota selects execution order, not confidence.
 
-No model calls are needed to validate the current workflow. Before any later Gemini/OpenAI call, inspect account quota/current usage, record the result, and set a local call/token budget. Use available Gemini free allowance first. A reasoning stage may use Gemini where suitable; it does not automatically imply OpenAI.
+The original deterministic workflow requires no model calls. The subsequent bounded refinement/business stage makes explicitly budgeted text calls following recorded preflight; unavailable account-wide counters remain unknown. Prefer confirmed available Gemini free allowance. A reasoning stage may use Gemini where suitable; it does not automatically imply OpenAI.
 
 ## Opportunity methodology v2: operating economics
 
@@ -75,4 +75,6 @@ The [experiment operating policy](experiment-operating-policy.md) defines accoun
 
 Implemented now: synthetic workflow tests plus real-cohort normalization, digital filtering, deduplication, shop concentration, currency-specific price distributions, engagement/missingness, age buckets, normalized tags/title overlap and automation flags. Explicit cost scenarios include manual time; expected receipts remain unknown unless supplied. Durable orchestration and guarded live collection/replay remain available through Java/Spring tooling, with all tests under Maven.
 
-Planned: published-product performance ingestion, automated experiment budgets and stop rules, snapshots/deltas, semantic clustering, model extraction/reasoning only where worth the cost, and calibrated portfolio economics. No production digital assets or images are generated in this increment.
+Also implemented: bounded semantic search grouping, measured focused-query yield, one narrowing pass for oversized pools, recent review/public shop enrichment, modest USD 30/month target arithmetic, cited model business hypotheses and a persistent USD 2 stage guard. See [ADR 0007](../adr/0007-bounded-search-and-business-evidence.md) and the [business API](../api/market-business-analysis.md). Public competitor monthly revenue remains unavailable; review-rate scenarios are explicitly uncalibrated, not probability estimates.
+
+Planned: published-product performance ingestion, automated experiment budgets and stop rules, snapshots/deltas and calibrated portfolio economics. No production digital assets or images are generated in this increment.

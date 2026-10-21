@@ -18,7 +18,7 @@ The Java `ExperimentEconomics` calculator evaluates explicit same-currency, same
 
 ## Proportional research and automation
 
-Set batch spending, API/token, compute and manual-minute budgets before execution. Publication and generation are subsequent capabilities; the present increment stops after deterministic analysis.
+Set batch spending, API/token, compute and manual-minute budgets before execution. Publication and asset generation are subsequent capabilities; the current increment includes bounded text-model interpretation but stops before producing or publishing products.
 
 A small experiment can be worth running at low confidence and low success probability. Choose further research only when its expected effect on the decision exceeds its cost and delay; otherwise run the bounded experiment. Do not use fixed listing/shop counts or repeat observation windows as mandatory publication prerequisites.
 

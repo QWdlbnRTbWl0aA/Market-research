@@ -4,7 +4,7 @@ A local system for researching Etsy digital-product opportunities. It will gathe
 
 ## Current status
 
-The Halloween playground includes durable simulated orchestration and a real-cohort deterministic analysis endpoint. A fresh 1000-listing Etsy collection has been processed through that endpoint. The orchestrator's demonstration workflow still uses synthetic evidence. Gemini, OpenAI and image generation remain disabled.
+The Halloween playground includes durable simulated orchestration, deterministic cohort analysis, bounded live search refinement and a business-evidence analyzer. The research CLI coordinates real Etsy and budgeted text-model calls; the orchestrator's demonstration workflow still uses synthetic evidence. Image generation and publishing remain disabled.
 
 ## Planned system
 
@@ -83,7 +83,27 @@ java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --resear
 java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --research.tools.command=discover --research.tools.live-enabled=true --research.tools.credentials-file=/path/to/etsy.env
 ```
 
-`collect` refuses to overwrite an existing cohort. It uses one quota probe plus at most fourteen 100-result pages, a 30-attempt rolling-day cap, two-second spacing and a daily reserve. `discover` uses one probe and four `limit=1` searches under its six-attempt rolling-day cap. Both share the existing ledger and lock under `data/etsy-discovery/`; neither retries HTTP failures.
+Every fresh live command first deletes previous research outputs from the allowlisted Halloween, cohort and discovery directories. Operational quota/spending ledgers, documentation and fixtures survive. Consequently replay requires a currently saved cohort; historical run documentation is not replay input. `collect` uses one quota probe plus at most fourteen 100-result pages, a 30-attempt rolling-day cap, two-second spacing and a daily reserve. `discover` uses one probe and four `limit=1` searches under its six-attempt rolling-day cap. Both share the existing ledger and lock under `data/etsy-discovery/`; neither retries HTTP failures.
 
 The CLI defaults to help; `--research.tools.root=.` selects the project root. The Java tooling has replaced the former scripts and their Python tests. All ordinary checks run through Maven; live collection is never part of the test lifecycle.
+
+## Focused searches and business analysis
+
+After building, check model access without generation, then explicitly run the bounded live investigation:
+
+```bash
+java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --research.tools.command=provider-check --research.models.gemini-credentials-file=/path/to/gemini.env --research.models.open-ai-credentials-file=/path/to/openai.env
+java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --research.tools.command=research --research.tools.live-enabled=true --research.tools.credentials-file=/path/to/etsy.env --research.models.gemini-credentials-file=/path/to/gemini.env --research.models.open-ai-credentials-file=/path/to/openai.env
+java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --research.tools.command=forecast
+```
+
+`research` clears old results, samples 60 seed listings, proposes at most three focused searches, and makes at most one further narrowing pass for pools above 2,000 listings. It samples up to 100 listings per child instead of enumerating the pool. Semantic classification rejects irrelevant downloads; code handles type filtering, duplicates, query yield and money. A single missing-ID repair is allowed per classification batch; invalid or still-incomplete output stops the run.
+
+The business engine targets USD 30/month gross receipts without favoring high-priced products. It calculates required units, samples up to two independent shops per group, and collects recent listing-review purchase proxies. Public Etsy data does **not** reveal competitors' verified monthly revenue. Explicit review-rate scenarios are uncalibrated illustrations, not forecasts or confidence intervals. Model reasoning adds differentiation, automation plans and TEST/DEFER recommendations, subject to deterministic evidence validation. Low confidence need not block a cheap automated experiment.
+
+Results are private, ignored files under `data/halloween-run/`. `forecast` derives daily/monthly token costs from that run without cleanup or provider calls. Persistent `data/provider-ledgers/` survives cleanup and enforces the user's **USD 2 development-stage ceiling**, including uncertain reservations. Model preflight must be less than 24 hours old. Gemini is preferred only with verified operator confirmation of free-tier access; account metadata alone cannot establish this. OpenAI account-wide usage may be unavailable without an Admin key and is never inferred from our ledger.
+
+The research command enforces a 100-request rolling-day local Etsy cap, two-second spacing, at most 20 new requests/run, response-header reconciliation and a daily reserve. It performs only read operations. The slow provider coordination currently lives in the explicit CLI, not a new synchronous HTTP workflow; quick deterministic endpoints are described in [the API contract](docs/api/market-business-analysis.md). [ADR 0007](docs/adr/0007-bounded-search-and-business-evidence.md) records scope and trade-offs.
+
+See the [live business-stage results and daily cost forecast](docs/research/2026-10-21-business-analysis-run.md). The final run found 633 usable digital listings; all three proposed experiments remain LOW confidence. Measured text analysis costs about USD 0.112/day, or USD 3.36 per thirty daily runs, excluding compute and human involvement.
 

@@ -47,6 +47,9 @@ Authentication and application security are out of scope while the system remain
 - Prefer Gemini's available free quota before using OpenAI for an equivalent operation.
 - Enforce Etsy limits locally with conservative request budgeting, throttling, and response-header reconciliation. Never rely solely on Etsy rejecting excess traffic.
 - Do not make image-generation calls until the user explicitly lifts the current restriction.
+- The current refinement/business-analysis stage has a persistent USD 2 OpenAI development/testing ceiling. Never reset its ledger during research cleanup or silently extend this authorization to scheduled production.
+- Fresh Halloween live runs must delete previous fetched research outputs using the explicit allowlist, preserving operational ledgers, code, test fixtures and documentation. Offline replay/forecast are not new searches.
+- Keep refinement lightweight: bounded semantic grouping and query probes, not elaborate regex taxonomies or exhaustive pagination. Business analysis targets modest recurring receipts, price-neutrally, and distinguishes public purchase proxies from unavailable competitor revenue.
 
 ## Engineering conventions
 
