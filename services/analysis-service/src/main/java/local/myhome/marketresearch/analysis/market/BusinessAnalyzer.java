@@ -123,6 +123,9 @@ public final class BusinessAnalyzer {
                         throw new IllegalArgumentException("Unknown model citation");
                     if(field.equals("citedListingIds") && !members.getOrDefault(group,Set.of()).contains(key))
                         throw new IllegalArgumentException("Cross-group citation");
+                    if(field.equals("citedShopIds") && members.getOrDefault(group,Set.of()).stream()
+                            .noneMatch(listing->key.equals(String.valueOf(listings.get(listing).get("shop_id")))))
+                        throw new IllegalArgumentException("Cross-group shop citation");
                 }
             }
         }
