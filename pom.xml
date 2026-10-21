@@ -20,6 +20,7 @@
         <module>services/analysis-service</module>
         <module>services/content-service</module>
         <module>services/research-archive-service</module>
+        <module>tools/research-tools</module>
     </modules>
     <properties>
         <java.version>21</java.version>

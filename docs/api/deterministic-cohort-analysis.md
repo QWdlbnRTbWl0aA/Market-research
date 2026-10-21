@@ -16,4 +16,4 @@ Price percentiles use linear interpolation at `(n-1)*p`; currencies never mix. T
 
 STANDARD_DOWNLOAD means both customization flags are explicitly false. Any true flag yields TEMPLATE_REVIEW; missing flags yield AUTOMATION_UNKNOWN. The queue prioritizes those workload hints and uses stable IDs for ties. It is not an expected-return ranking and imposes no sample-size gate on cheap publication experiments.
 
-The endpoint does not archive or retain the submitted cohort and is not yet called by the orchestrator. The collection/replay scripts retain local evidence and the report for this test. No secrets or machine metadata belong in input or output.
+The endpoint does not archive or retain the submitted cohort and is not yet called by the orchestrator. The Java research-tools CLI retains local evidence and the report for this test. No secrets or machine metadata belong in input or output.

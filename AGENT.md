@@ -51,6 +51,7 @@ Authentication and application security are out of scope while the system remain
 ## Engineering conventions
 
 - Target Java 21 and build with Maven from the repository root.
+- Keep backend services and operational/research tooling in Java and Spring. Run unit tests with Maven Surefire and integration/acceptance tests with Maven Failsafe; do not add a Python tooling dependency.
 - Prefer immutable records, explicit contracts, constructor injection, and small provider adapters.
 - Keep configuration non-secret and environment-driven. Commit safe defaults only.
 - Test domain behavior, API contract mapping, idempotency, state transitions, and adapter failure handling.

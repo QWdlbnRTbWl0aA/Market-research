@@ -1,5 +1,7 @@
 # Etsy quota and usage observation — 2026-10-21
 
+Historical record: the Python discovery implementation described below has since been replaced by the Java research-tools CLI. Its quota ledger and recorded observations remain compatible; see ADR 0006 and the current README for commands.
+
 Checked at 11:42:41 UTC. Identity alias: configured Etsy research application. Credentials and machine/network identifiers are deliberately omitted.
 
 ## Before research searches
