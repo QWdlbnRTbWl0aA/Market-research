@@ -17,11 +17,13 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootApplication
-@EnableConfigurationProperties({ResearchToolsApplication.Settings.class,ModelSettings.class})
+@EnableConfigurationProperties({ResearchToolsApplication.Settings.class,ModelSettings.class,ResearchToolsApplication.ComparisonSettings.class})
 public class ResearchToolsApplication {
     @ConfigurationProperties("research.tools")
     public record Settings(@DefaultValue(".") Path root, @DefaultValue("help") String command,
                            Path credentialsFile, @DefaultValue("false") boolean liveEnabled) {}
+    @ConfigurationProperties("research.comparison")
+    public record ComparisonSettings(@DefaultValue("gemini") String provider) {}
 
     public static void main(String[] args) {
         try (var ignored = new SpringApplicationBuilder(ResearchToolsApplication.class)
@@ -36,11 +38,11 @@ public class ResearchToolsApplication {
             System.exit(1);
         }
     }
-    @Bean ApplicationRunner execute(Settings settings, ModelSettings models, Environment environment, ObjectMapper json) {
+    @Bean ApplicationRunner execute(Settings settings, ModelSettings models, ComparisonSettings comparison, Environment environment, ObjectMapper json) {
         return arguments -> {
             Path root = settings.root().toAbsolutePath().normalize();
             if ("help".equals(settings.command())) {
-                System.out.println("Commands: replay/forecast (offline), provider-check (metadata), research/collect/discover (require research.tools.live-enabled=true).");
+                System.out.println("Commands: replay/forecast/comparison-prepare (offline), provider-check (metadata), compare/collect-comparison/research/collect/discover (require research.tools.live-enabled=true).");
                 return;
             }
             Map<String,Object> result;
@@ -49,13 +51,35 @@ public class ResearchToolsApplication {
                     ProviderHttp.client("https://api.openai.com/v1",environment),json,models).run(root);
             }
             else if ("replay".equals(settings.command())) result = new CohortReplay(json).run(root);
+            else if ("comparison-prepare".equals(settings.command()) || "compare".equals(settings.command())) {
+                if("compare".equals(settings.command())&&!settings.liveEnabled())throw new ToolFailure("Live model comparison calls are disabled.");
+                var corpus=new FrozenCorpus(root,json);
+                var ceiling=ProductComparison.spendingCeiling(root,json);
+                if("comparison-prepare".equals(settings.command())) {
+                    var compact=corpus.compactListings();var sizes=new java.util.ArrayList<Integer>();
+                    for(int offset=0;offset<compact.size();offset+=1667)sizes.add(json.writeValueAsBytes(
+                        Map.of("context",corpus.context(),"listings",compact.subList(offset,Math.min(offset+1667,compact.size())))).length);
+                    result=Map.of("sourceHashes",corpus.hashes,"listings",compact.size(),"shops",corpus.shops.size(),
+                        "reviewExcerpts",corpus.reviews.size(),"scanInputBytes",sizes,"openAiCeilingUsd",ceiling,"protocol",ProductReasoning.VERSION);
+                    PrivateJson.write(root.resolve("data/halloween-run/comparison/prepared.json"),result,json);
+                } else {
+                    if(!settings.liveEnabled())throw new ToolFailure("Live model comparison calls are disabled.");
+                    String provider=comparison.provider();
+                    if(!java.util.Set.of("gemini","openai").contains(provider))throw new ToolFailure("Choose gemini or openai explicitly.");
+                    Path output=Files.createTempDirectory(root.resolve("data/halloween-run/comparison"),"api-"+provider+"-");
+                    var reasoning=new ResearchModels(ProviderHttp.client("https://api.openai.com/v1",environment),
+                        ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),models,json,root);
+                    result=new ProductComparison(corpus,json,(purpose,instructions,evidence)->
+                        reasoning.askOn(provider,purpose,instructions,evidence,ceiling,750_000),output).run(provider);
+                }
+            }
             else if ("forecast".equals(settings.command())) {
                 result=ProductionForecast.daily(
                     json.readValue(Files.readString(root.resolve("data/provider-ledgers/openai-stage.json")),Map.class),
                     json.readValue(Files.readString(root.resolve("data/halloween-run/manifest.json")),Map.class));
                 PrivateJson.write(root.resolve("data/halloween-run/production-forecast.json"),result,json);
             }
-            else if ("collect".equals(settings.command()) || "discover".equals(settings.command()) || "research".equals(settings.command())) {
+            else if ("collect".equals(settings.command()) || "discover".equals(settings.command()) || "research".equals(settings.command()) || "collect-comparison".equals(settings.command())) {
                 if (!settings.liveEnabled()) throw new ToolFailure("Live research calls are disabled.");
                 var factory = new SimpleClientHttpRequestFactory() {
                     @Override protected void prepareConnection(HttpURLConnection connection,String method)
@@ -76,7 +100,8 @@ public class ResearchToolsApplication {
                 var gateway = new EtsyGateway(client,json,() -> EtsyCredentials.load(settings.credentialsFile(),environment));
                 var ledger = new QuotaLedger(root.resolve("data/etsy-discovery"),json,System::currentTimeMillis,Thread::sleep);
                 var research = new EtsyResearch(gateway,ledger,json);
-                if ("research".equals(settings.command())) {
+                if("collect-comparison".equals(settings.command()))result=new LargeSampleCollector(root,gateway,ledger,json).run();
+                else if ("research".equals(settings.command())) {
                     var reasoning=new ResearchModels(ProviderHttp.client("https://api.openai.com/v1",environment),
                         ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),models,json,root);
                     result=new HalloweenResearchRun(root,gateway,ledger,reasoning,json).run();
