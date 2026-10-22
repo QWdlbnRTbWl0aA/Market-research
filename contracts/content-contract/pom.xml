@@ -9,5 +9,6 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>content-contract</artifactId>
+    <dependencies><dependency><groupId>local.myhome.marketresearch</groupId><artifactId>analysis-contract</artifactId><version>${project.version}</version></dependency></dependencies>
 </project>
 

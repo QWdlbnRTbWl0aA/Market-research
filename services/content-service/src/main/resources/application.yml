@@ -1,7 +1,12 @@
 spring:
+  datasource:
+    url: ${CONTENT_DB_URL:jdbc:h2:file:./data/content;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0}
+    username: sa
+    password: ""
   application:
     name: content-service
 server:
+  address: 127.0.0.1
   port: ${CONTENT_PORT:8083}
 market-research:
   providers:
