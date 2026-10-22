@@ -70,13 +70,16 @@ public class ProviderAccess {
         if(!"gemini".equals(route)&&(allowance==null||allowance.isBlank()))
             throw new ToolFailure("Select a fresh OpenAI allowance explicitly");
         String invocation=java.util.UUID.randomUUID().toString();
+        String observationTime=java.time.Instant.now().toString();
         long started=System.nanoTime();boolean succeeded=false;
         try {
-            var result=models.askOn(route,purpose+"#"+invocation,instruction,evidence,BigDecimal.ONE,750_000,allowance);
+            var result=models.askOn(route,purpose+"#"+invocation,
+                instruction+"\nResearch observation time (UTC): "+observationTime,evidence,BigDecimal.ONE,750_000,allowance);
             succeeded=true;return result;
         } finally {
             var record=new LinkedHashMap<String,Object>(models.usage());
             record.put("invocationId",invocation);record.put("stage",purpose);record.put("at",java.time.Instant.now().toString());
+            record.put("observationTime",observationTime);
             record.put("durationMillis",(System.nanoTime()-started)/1_000_000);record.put("status",succeeded?"SUCCEEDED":"FAILED_OR_DEFERRED");
             lastUsage.set(record);
             PrivateJson.write(root.resolve("data/provider-ledgers/stage-usage/"+invocation+".json"),record,json);

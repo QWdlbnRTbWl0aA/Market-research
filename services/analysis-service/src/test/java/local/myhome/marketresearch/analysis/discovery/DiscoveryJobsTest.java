@@ -47,10 +47,29 @@ class DiscoveryJobsTest {
         when(provider.reason(anyString(),anyString(),any())).thenReturn(bad);
         var job=jobs.submit("bad",task(List.of(listing(1,"Printable",1))));
         jobs.tick();assertEquals("BLOCKED",jobs.get(job.id()).status());jobs.tick();
+        var evidence=jobs.evidence(job.id());
+        assertEquals(1,((List<?>)evidence.get("outputs")).size());
+        assertEquals("Invalid or ungrounded recommendation",evidence.get("failureDetail"));
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM discovery_cache",Integer.class));
         verify(provider,times(1)).reason(anyString(),anyString(),any());
         when(provider.reason(anyString(),anyString(),any())).thenReturn(report());
         jobs.resume(job.id());jobs.tick();jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
+        assertEquals(3,((List<?>)jobs.evidence(job.id()).get("outputs")).size(),"Rejected output survives explicit retry");
+    }
+    @Test void rejectedReviewRetainsItsOutputAndExplicitRetryDoesNotRepeatGeneration() throws Exception {
+        var invalid=new LinkedHashMap<>(report());
+        invalid.put("newInsights",null);
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(report(),invalid,report());
+        var job=jobs.submit("review-recovery",task(List.of(listing(1,"Printable",1))));
+        jobs.tick();jobs.tick();
+        assertEquals("BLOCKED",jobs.get(job.id()).status());
+        assertNotNull(jobs.evidence(job.id()).get("draft"));
+        assertEquals(2,((List<?>)jobs.evidence(job.id()).get("outputs")).size());
+        jobs.resume(job.id());jobs.tick();
+        assertEquals("SUCCEEDED",jobs.get(job.id()).status());
+        verify(provider,times(1)).reason(eq("discovery-business"),anyString(),any());
+        verify(provider,times(2)).reason(eq("discovery-review"),anyString(),any());
+        assertEquals(3,((List<?>)jobs.evidence(job.id()).get("outputs")).size());
     }
     @Test void cancellationAndCrashRecoveryAreExplicit() throws Exception {
         var task=task(List.of(listing(1,"Printable",1)));var cancelled=jobs.submit("cancel",task);

@@ -35,6 +35,16 @@ public class ProductJobs {
         intentPreserved must reflect an actual comparison with the recommendation, not automatic agreement.
         readiness is READY only with no unresolved questions and a coherent, actionable specification;
         otherwise REQUIRES_REVIEW. Do not invent proof of actual production QA (no product has been generated).
+        Keep the first experiment small; avoid expanding a recommendation into an entire catalog. Prefer a
+        consolidated PDF per print size over many redundant files. Every criterion.file must exactly equal a
+        filename in files: no 'all files', wildcard, or informal group names. Repeat checks per file if needed.
+        Copy each file's dimensions field VERBATIM into its DIMENSIONS criterion.expected, including any
+        mixed-page-size description. Do not paraphrase or drop prefixes: the contract compares these strings.
+        Independently decide routine choices such as paper size, layout, transliteration style and pointing,
+        recording the choice as an assumption rather than asking the operator to make every design decision.
+        Keep genuinely unverified cultural/source-text questions visible; never claim they have been verified.
+        The independent producer needs an exact page/content manifest, not 'choose some appropriate activities'.
+        Check that ritual references describe their actual occasion of use, not a made-up daily practice.
         Return JSON with exactly these fields:
         {"product":"specific product","audience":"buyer","useCase":"use",
         "files":[{"filename":"name.pdf","format":"PDF","dimensions":"A4, 210 x 297 mm",
@@ -58,6 +68,9 @@ public class ProductJobs {
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS next_attempt BIGINT DEFAULT 0");
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS call_inputs CLOB");
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS usage_json CLOB");
+        db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS call_outputs CLOB");
+        db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS failure_detail VARCHAR(300)");
+        db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS review_key VARCHAR(200)");
         db.update("UPDATE product_definition_jobs SET status='BLOCKED',error='INTERRUPTED_PROVIDER_OPERATION' WHERE status='RUNNING'");
     }
     public synchronized View submit(String key,Request request) {
@@ -84,6 +97,15 @@ public class ProductJobs {
     }
     public void cancel(UUID id){get(id);db.update("UPDATE product_definition_jobs SET status='CANCELLED' WHERE id=? AND status IN ('ACCEPTED','RUNNING','BLOCKED','WAITING_QUOTA')",id.toString());}
     public void resume(UUID id){get(id);db.update("UPDATE product_definition_jobs SET status='ACCEPTED',error=NULL WHERE id=? AND status='BLOCKED'",id.toString());}
+    public synchronized View reviewAgain(UUID id,String key) {
+        require(text(key)&&key.length()<=200,"Review idempotency key required");
+        var current=get(id);
+        String previous=db.queryForObject("SELECT review_key FROM product_definition_jobs WHERE id=?",String.class,id.toString());
+        if (key.equals(previous)) return current;
+        if (!"SUCCEEDED".equals(current.status())) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only a completed brief can be reviewed again");
+        db.update("UPDATE product_definition_jobs SET draft=result,phase='REVIEW',status='ACCEPTED',error=NULL,failure_detail=NULL,review_key=? WHERE id=?",key,id.toString());
+        return get(id);
+    }
     @Scheduled(fixedDelayString="${research.product.worker-delay-ms:500}")
     public void tick() {
         var rows=db.queryForList("SELECT * FROM product_definition_jobs WHERE status IN ('ACCEPTED','WAITING_QUOTA') AND next_attempt<=? FETCH FIRST 1 ROW ONLY",System.currentTimeMillis());
@@ -95,11 +117,36 @@ public class ProductJobs {
             boolean review="REVIEW".equals(row.get("PHASE"));
             Object evidence=review?Map.of("request",request,"draft",json.readValue(stored(row.get("DRAFT")),Brief.class)):request;
             String stage=review?"product-definition-review":"product-definition";
-            String instructions=PROMPT+(review?"\nIndependently compare this draft to the recommendation's buying purpose. Correct contradictions and omissions; changing counts/specifications is allowed when intent is preserved. Verify every per-file criterion and preserve genuine unresolved issues. Return the same Brief schema.":"");
+            String instructions=PROMPT+(review?"""
+                Independently compare this draft to the recommendation's buying purpose. Correct contradictions
+                and omissions; changing counts/specifications is allowed when intent is preserved. Verify every
+                per-file criterion. Do NOT merely copy draft unresolvedQuestions. Resolve ordinary design preferences
+                using explicit, practical defaults and the contents already selected: paper size, Hebrew presence,
+                pointing, transliteration style, age range, and notes-versus-answers are production decisions.
+                Record the selected version as an assumption, not a question for the operator. Do not leave a
+                question open that contradicts an already-specified page. Genuine missing verified source text or
+                an explicit unmet user constraint may remain blocking; label REQUIRES_REVIEW honestly in that case.
+                Evaluate the observation date when selecting a seasonal first release; prefer an upcoming purchase
+                window or an evergreen item over an already-passed season, without inventing calendar dates.
+                Return the same full Brief schema, not a critique summary or a decision to ask the operator.
+                """:"");
+            String retainedOutputs=stored(row.get("CALL_OUTPUTS"));
+            if (row.get("FAILURE_DETAIL") != null && retainedOutputs != null) {
+                List<Map<String,Object>> prior=json.readValue(retainedOutputs,List.class);
+                if (!prior.isEmpty() && stage.equals(prior.getLast().get("stage"))) {
+                    evidence=Map.of("currentInput",evidence,"lastRejectedOutput",prior.getLast().get("answer"),
+                        "validationFailure",row.get("FAILURE_DETAIL"));
+                    instructions+="\nThis is an explicitly authorized retry. Correct the retained rejected output using validationFailure; preserve business intent and return the full Brief schema.";
+                }
+            }
             recordInput(id,stage,instructions,evidence);
             Map<String,Object> answer;
             try {answer=provider.reason(stage,instructions,evidence);}
             finally {recordUsage(id);}
+            String previous=db.queryForObject("SELECT call_outputs FROM product_definition_jobs WHERE id=?",String.class,id);
+            List<Object> outputs=previous==null?new ArrayList<>():json.readValue(previous,List.class);
+            outputs.add(Map.of("stage",stage,"at",java.time.Instant.now().toString(),"answer",answer));
+            db.update("UPDATE product_definition_jobs SET call_outputs=? WHERE id=?",json.writeValueAsString(outputs),id);
             var result=json.convertValue(answer,Brief.class);
             validate(result,request);
             if(review)db.update("UPDATE product_definition_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(result),id);
@@ -109,7 +156,8 @@ public class ProductJobs {
         } catch(local.myhome.marketresearch.tools.ProviderBusy waiting) {
             db.update("UPDATE product_definition_jobs SET status='ACCEPTED' WHERE id=? AND status='RUNNING'",id);
         } catch(Exception error) {
-            db.update("UPDATE product_definition_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED' WHERE id=? AND status='RUNNING'",id);
+            String detail=error instanceof ResponseStatusException rejection?rejection.getReason():error.getClass().getSimpleName();
+            db.update("UPDATE product_definition_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED',failure_detail=? WHERE id=? AND status='RUNNING'",detail,id);
         }
     }
     static void validate(Brief b,Request request) {
@@ -155,13 +203,15 @@ public class ProductJobs {
     }
     public Map<String,Object> evidence(UUID id) {
         var result=get(id);
-        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json FROM product_definition_jobs WHERE id=?",id.toString());
+        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json,call_outputs,failure_detail FROM product_definition_jobs WHERE id=?",id.toString());
         var evidence=new LinkedHashMap<String,Object>();
         evidence.put("request",json.readValue(stored(row.get("PAYLOAD")),Request.class));
         evidence.put("result",result);
         evidence.put("calls",row.get("CALL_INPUTS")==null?Map.of():json.readValue(stored(row.get("CALL_INPUTS")),Map.class));
         evidence.put("draft",row.get("DRAFT")==null?null:json.readValue(stored(row.get("DRAFT")),Map.class));
         evidence.put("usage",row.get("USAGE_JSON")==null?List.of():json.readValue(stored(row.get("USAGE_JSON")),List.class));
+        evidence.put("outputs",row.get("CALL_OUTPUTS")==null?List.of():json.readValue(stored(row.get("CALL_OUTPUTS")),List.class));
+        evidence.put("failureDetail",row.get("FAILURE_DETAIL"));
         return evidence;
     }
     static boolean text(String s){return s!=null&&!s.isBlank();}

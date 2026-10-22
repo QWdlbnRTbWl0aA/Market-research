@@ -67,7 +67,7 @@ final class ResearchModels {
             throw new ToolFailure("Select an explicitly authorized named OpenAI allowance");
         Map<String,Object> body=Map.of("model",settings.openAiModel(),"messages",List.of(
             Map.of("role","user","content",prompt)),"reasoning_effort","low",
-            "response_format",Map.of("type","json_object"),"max_completion_tokens",8000,"store",false);
+            "response_format",StructuredOutput.format(purpose),"max_completion_tokens",8000,"store",false);
         byte[] serialized=json.writeValueAsBytes(body);
         String key=SecretFiles.get(settings.openAiCredentialsFile(),"OPENAI_API_KEY");
         var budget=activeAllowance==null?new ModelBudget(root.resolve("data/provider-ledgers"),json,ceiling,inputLimit):

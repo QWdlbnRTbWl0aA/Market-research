@@ -40,8 +40,39 @@ class ProductJobsTest {
     @Test void inventedReferencesAndUnsafeFilenamesAreRejectedWithoutRetry() throws Exception {
         when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(brief("../activity.pdf",List.of("1")),Map.class));
         var job=jobs.submit("bad",request());jobs.tick();assertEquals("BLOCKED",jobs.get(job.id()).status());jobs.tick();
+        assertEquals(1,((List<?>)jobs.evidence(job.id()).get("outputs")).size());
+        assertEquals("Invalid deliverable",jobs.evidence(job.id()).get("failureDetail"));
         verify(provider,times(1)).reason(anyString(),anyString(),any());
         assertThrows(ResponseStatusException.class,()->ProductJobs.validate(brief("activity.pdf",List.of("9")),request()));
+    }
+    @Test void rejectedBriefReviewCanBeRetriedWithoutRedefiningTheProduct() throws Exception {
+        var valid=json.convertValue(brief("activity.pdf",List.of("1")),Map.class);
+        var invalid=new LinkedHashMap<>(valid);invalid.put("intentPreserved",false);
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(valid,invalid,valid);
+        var job=jobs.submit("review-recovery",request());jobs.tick();jobs.tick();
+        assertEquals("BLOCKED",jobs.get(job.id()).status());
+        assertEquals(2,((List<?>)jobs.evidence(job.id()).get("outputs")).size());
+        jobs.resume(job.id());jobs.tick();
+        assertEquals("SUCCEEDED",jobs.get(job.id()).status());
+        verify(provider,times(1)).reason(eq("product-definition"),anyString(),any());
+        verify(provider,times(2)).reason(eq("product-definition-review"),anyString(),any());
+        var inputs=org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(provider,times(3)).reason(anyString(),anyString(),inputs.capture());
+        var feedback=(Map<?,?>)inputs.getAllValues().getLast();
+        assertEquals("Business intent was not preserved",feedback.get("validationFailure"));
+        assertTrue(feedback.containsKey("lastRejectedOutput"));
+    }
+    @Test void explicitRevalidationIsIdempotentAndDoesNotRepeatDefinition() throws Exception {
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(brief("activity.pdf",List.of("1")),Map.class));
+        var job=jobs.submit("revalidation",request());jobs.tick();jobs.tick();
+        assertEquals("ACCEPTED",jobs.reviewAgain(job.id(),"review-round-1").status());
+        assertEquals("ACCEPTED",jobs.reviewAgain(job.id(),"review-round-1").status());
+        jobs.tick();
+        assertEquals("SUCCEEDED",jobs.reviewAgain(job.id(),"review-round-1").status());
+        jobs.tick();
+        verify(provider,times(1)).reason(eq("product-definition"),anyString(),any());
+        verify(provider,times(2)).reason(eq("product-definition-review"),anyString(),any());
+        assertEquals(3,((List<?>)jobs.evidence(job.id()).get("outputs")).size());
     }
     @Test void pendingCancellationAndInterruptedCallRecoveryDoNotSendCalls() {
         var a=jobs.submit("cancel",request());jobs.cancel(a.id());jobs.tick();assertEquals("CANCELLED",jobs.get(a.id()).status());
