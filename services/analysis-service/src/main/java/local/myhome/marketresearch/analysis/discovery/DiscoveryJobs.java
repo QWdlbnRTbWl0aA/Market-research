@@ -38,6 +38,8 @@ public class DiscoveryJobs {
         db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS next_attempt BIGINT DEFAULT 0");
         db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS call_inputs CLOB");
         db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS usage_json CLOB");
+        db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS call_outputs CLOB");
+        db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS failure_detail VARCHAR(300)");
         db.execute("CREATE TABLE IF NOT EXISTS discovery_refinement_cache(cache_key VARCHAR(64) PRIMARY KEY, result CLOB)");
         opportunities=new OpportunityCatalog(db,json);
         // A crash during provider I/O is ambiguous: never silently rebill the same operation.
@@ -126,7 +128,8 @@ public class DiscoveryJobs {
         } catch(local.myhome.marketresearch.tools.ProviderBusy waiting) {
             db.update("UPDATE discovery_jobs SET status='ACCEPTED' WHERE id=? AND status='RUNNING'",id);
         } catch(Exception error) {
-            db.update("UPDATE discovery_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED' WHERE id=? AND status='RUNNING'",id);
+            String detail=error instanceof ResponseStatusException rejection?rejection.getReason():error.getClass().getSimpleName();
+            db.update("UPDATE discovery_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED',failure_detail=? WHERE id=? AND status='RUNNING'",detail,id);
         }
     }
     private void finish(String id,String result) {db.update("UPDATE discovery_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",result,id);}
@@ -135,7 +138,14 @@ public class DiscoveryJobs {
         Map<String,Object> inputs=existing==null?new LinkedHashMap<>():json.readValue(existing,Map.class);
         inputs.put(stage,Map.of("instructions",prompt,"evidence",evidence,"modelContext",cacheVersion));
         db.update("UPDATE discovery_jobs SET call_inputs=? WHERE id=?",json.writeValueAsString(inputs),jobId);
-        try {return provider.reason(stage,prompt,evidence);}
+        try {
+            var answer=provider.reason(stage,prompt,evidence);
+            String previous=db.queryForObject("SELECT call_outputs FROM discovery_jobs WHERE id=?",String.class,jobId);
+            List<Object> outputs=previous==null?new ArrayList<>():json.readValue(previous,List.class);
+            outputs.add(Map.of("stage",stage,"at",java.time.Instant.now().toString(),"answer",answer));
+            db.update("UPDATE discovery_jobs SET call_outputs=? WHERE id=?",json.writeValueAsString(outputs),jobId);
+            return answer;
+        }
         finally {
             var usage=provider.lastUsage();
             if(usage!=null) {
@@ -147,13 +157,15 @@ public class DiscoveryJobs {
     }
     public Map<String,Object> evidence(UUID id) {
         var view=get(id);
-        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json FROM discovery_jobs WHERE id=?",id.toString());
+        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json,call_outputs,failure_detail FROM discovery_jobs WHERE id=?",id.toString());
         var task=json.readValue(stored(row.get("PAYLOAD")),Task.class);
         var evidence=new LinkedHashMap<String,Object>();
         evidence.put("request",task);evidence.put("result",view);
         evidence.put("calls",row.get("CALL_INPUTS")==null?Map.of():json.readValue(stored(row.get("CALL_INPUTS")),Map.class));
         evidence.put("draft",row.get("DRAFT")==null?null:json.readValue(stored(row.get("DRAFT")),Map.class));
         evidence.put("usage",row.get("USAGE_JSON")==null?List.of():json.readValue(stored(row.get("USAGE_JSON")),List.class));
+        evidence.put("outputs",row.get("CALL_OUTPUTS")==null?List.of():json.readValue(stored(row.get("CALL_OUTPUTS")),List.class));
+        evidence.put("failureDetail",row.get("FAILURE_DETAIL"));
         if(view.assessment()!=null)evidence.put("opportunitySupport",opportunities.supportingEvidence(task,view.assessment()));
         return evidence;
     }

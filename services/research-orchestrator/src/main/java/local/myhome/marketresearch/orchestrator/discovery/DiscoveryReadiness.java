@@ -24,6 +24,9 @@ final class DiscoveryReadiness {
 
     private static long search(DiscoveryState state) {
         if (!"ACTIVE".equals(state.status) || !"ACTIVE".equals(state.searchStatus)) return IDLE;
+        if (state.samplingPageBudget > 0 && state.queries.stream().mapToInt(branch -> branch.pages).sum() >= state.samplingPageBudget)
+            return state.queries.stream().filter(branch -> "REFINING".equals(branch.status) && branch.refinementJob != null)
+                .mapToLong(branch -> branch.nextAttemptAt).min().orElse(0);
         var branches=state.queries.stream().filter(branch->!"DONE".equals(branch.status)).toList();
         if(branches.isEmpty())return state.nextSearchAttempt;
         return branches.stream().filter(branch->branch.stableAnalyses>=2||branch.pages<state.pageLimit||pending(state,branch).isEmpty())
@@ -34,11 +37,11 @@ final class DiscoveryReadiness {
         if (!"ACTIVE".equals(state.status)) return IDLE;
         var batch = state.batches.stream().filter(value -> !"SUCCEEDED".equals(value.status)).findFirst();
         if (batch.isPresent()) return Math.max(batch.get().nextAttemptAt, batch.get().request == null ? state.nextSearchAttempt : 0);
-        if (state.reassessmentPending && "EXHAUSTED".equals(state.searchStatus)) return 0;
+        if (state.reassessmentPending && state.searchComplete()) return 0;
         boolean eligible=state.queries.stream().anyMatch(branch->pending(state,branch).size()>=state.analysisBatchSize);
         boolean residual=state.listings.keySet().stream().anyMatch(id->!state.processed.contains(id)&&!state.excluded.contains(id));
         boolean pageBoundary=state.queries.stream().filter(branch->!"DONE".equals(branch.status)).allMatch(branch->branch.pages>=state.pageLimit);
-        return eligible||residual&&("EXHAUSTED".equals(state.searchStatus)||pageBoundary)?state.nextSearchAttempt:IDLE;
+        return eligible||residual&&(state.searchComplete()||pageBoundary)?state.nextSearchAttempt:IDLE;
     }
 
     private static long delivery(DiscoveryState state) {
@@ -48,6 +51,6 @@ final class DiscoveryReadiness {
         if (handoff.isPresent()) return handoff.get().nextAttemptAt;
         boolean drained = state.listings.keySet().stream().allMatch(id -> state.processed.contains(id) || state.excluded.contains(id))
             && state.batches.stream().allMatch(value -> "SUCCEEDED".equals(value.status));
-        return "EXHAUSTED".equals(state.searchStatus) && drained && !state.reassessmentPending ? 0 : IDLE;
+        return state.searchComplete() && drained && !state.reassessmentPending ? 0 : IDLE;
     }
 }

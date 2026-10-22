@@ -16,6 +16,7 @@ public class DiscoveryController {
     @GetMapping("/{id}") public Map<String,Object> get(@PathVariable UUID id){return view(flow.get(id));}
     @GetMapping("/{id}/results") public Map<String,Object> results(@PathVariable UUID id){return flow.snapshot(flow.get(id));}
     @PostMapping("/{id}/resume") public void resume(@PathVariable UUID id){flow.resume(id);}
+    @PostMapping("/{id}/review-briefs") public void reviewBriefs(@PathVariable UUID id,@RequestHeader("Idempotency-Key") String key){flow.reviewBriefs(id,key);}
     @PostMapping("/{id}/approve-trend") public void approve(@PathVariable UUID id){flow.approve(id);}
     @PostMapping("/{id}/dismiss-trend") public void dismiss(@PathVariable UUID id){flow.dismiss(id);}
     @DeleteMapping("/{id}") public ResponseEntity<Void> cancel(@PathVariable UUID id){flow.cancel(id);return ResponseEntity.accepted().build();}
@@ -24,6 +25,7 @@ public class DiscoveryController {
     private Map<String,Object> view(DiscoveryState s) {
         var m=new LinkedHashMap<String,Object>();m.put("id",s.id);m.put("query",s.query);m.put("status",s.status);
         m.put("searchStatus",s.searchStatus);m.put("error",s.error);m.put("listingCount",s.listings.size());
+        m.put("samplingPageBudget",s.samplingPageBudget);
         m.put("analyzedCount",s.processed.stream().filter(id->!s.excluded.contains(id)).count());m.put("excludedCount",s.excluded.size());
         m.put("pendingListings",s.listings.keySet().stream().filter(id->!s.processed.contains(id)&&!s.excluded.contains(id)).count());
         m.put("nextSearchAttemptEpochMillis",s.nextSearchAttempt);

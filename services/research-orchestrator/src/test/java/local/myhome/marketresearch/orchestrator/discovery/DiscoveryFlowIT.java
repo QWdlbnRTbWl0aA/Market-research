@@ -83,6 +83,9 @@ class DiscoveryFlowIT {
                     request.recommendation().listingIds(),"Inspiration only","Hypothetical USD 3",
                     List.of("Check print dimensions"),List.of("Template generation"),List.of());
                 var view=new ProductDefinition.View(id,"SUCCEEDED",null,brief);products.put(id,view);result=view;
+            } else if(path.startsWith("/v1/product-definition-jobs/")&&path.endsWith("/review")) {
+                String jobPath=path.substring(0,path.lastIndexOf('/'));
+                result=products.get(UUID.fromString(jobPath.substring(jobPath.lastIndexOf('/')+1)));
             } else if(path.startsWith("/v1/product-definition-jobs/"))result=products.get(UUID.fromString(path.substring(path.lastIndexOf('/')+1)));
             else if(path.equals("/v1/discovery-archives")){archived.add(JSON.readValue(x.getRequestBody(),Map.class));x.sendResponseHeaders(204,-1);return;}
             else throw new IllegalStateException("Unexpected local fixture route");
@@ -103,6 +106,45 @@ class DiscoveryFlowIT {
     void tickUntil(UUID id,String status) {
         for(int i=0;i<200&&!flow.get(id).status.equals(status);i++){flow.searchTick();flow.analysisTick();flow.deliveryTick();}
         assertEquals(status,flow.get(id).status,"error="+flow.get(id).error);assertNull(serverFailure.get());
+    }
+    @Test void boundedSamplingDrainsToCompleteArchiveWithoutClaimingMarketExhaustion() throws Exception {
+        when(provider.search(anyString(),eq(100),anyInt())).thenAnswer(call -> {
+            String query=call.getArgument(0);int offset=call.getArgument(2);
+            int base=query.equals("jewish printables")?1:query.contains("classroom")?1000:2000;
+            return Map.of("count",20000,"results",java.util.stream.IntStream.range(base+offset,base+offset+100)
+                .mapToObj(id->row(id,true)).toList());
+        });
+        when(provider.shop(anyString())).thenReturn(Map.of("shop_id",11,"transaction_sold_count",100));
+        var state=flow.start("bounded-sampling","Jewish printables");
+        state.samplingPageBudget=6;store.save(state);
+        tickUntil(state.id,"WATCHING");
+        var finished=flow.get(state.id);
+        assertEquals("SAMPLING_COMPLETE",finished.searchStatus);
+        assertEquals(6,finished.queries.stream().mapToInt(branch->branch.pages).sum());
+        assertTrue(finished.queries.stream().filter(branch->branch.depth==1).allMatch(branch->branch.pages>0));
+        assertTrue(finished.queries.stream().anyMatch(branch->"DEFERRED".equals(branch.status)));
+        assertTrue(finished.listings.keySet().stream().allMatch(finished.processed::contains));
+        assertEquals("SAMPLING_COMPLETE",archived.getFirst().get("searchStatus"));
+        assertEquals(6,((List<?>)archived.getFirst().get("sourcePages")).size());
+        clearInvocations(provider,store);
+        for(int index=0;index<5;index++){flow.searchTick();flow.analysisTick();flow.deliveryTick();}
+        verifyNoInteractions(provider);verify(store,never()).save(any());
+    }
+    @Test void completedBriefCanBeExplicitlyRevalidatedBeforeButNotAfterArchival() {
+        var state=flow.start("review-briefs","Synthetic printable intent");
+        state.searchStatus="EXHAUSTED";state.queries.getFirst().status="DONE";
+        var source=SearchPolicy.listing(row(1,true));state.listings.put("1",source);state.processed.add("1");
+        var handoff=new DiscoveryState.Handoff();handoff.key="fixture-handoff";
+        handoff.request=new ProductDefinition.Request(state.id,state.query,product("1"),List.of(source));
+        state.handoffs.add(handoff);store.save(state);
+        flow.deliveryTick();flow.deliveryTick();
+        assertEquals("SUCCEEDED",flow.get(state.id).handoffs.getFirst().status);
+        flow.reviewBriefs(state.id,"review-1");
+        assertNull(flow.get(state.id).handoffs.getFirst().brief);
+        flow.deliveryTick();flow.deliveryTick();flow.deliveryTick();
+        assertEquals("WATCHING",flow.get(state.id).status);
+        assertEquals(1,archived.size());
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,()->flow.reviewBriefs(state.id,"too-late"));
     }
     @Test void localProviderContentionRestoresPersistedOpenBranchWithoutConsumingPage() throws Exception {
         when(provider.search(anyString(),anyInt(),anyInt())).thenThrow(new ProviderBusy());

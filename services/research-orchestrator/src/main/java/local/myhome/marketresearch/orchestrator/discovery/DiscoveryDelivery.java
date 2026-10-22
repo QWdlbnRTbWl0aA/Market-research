@@ -51,7 +51,7 @@ final class DiscoveryDelivery {
         }
         boolean pendingListings = state.listings.keySet().stream()
             .anyMatch(id -> !state.processed.contains(id) && !state.excluded.contains(id));
-        if (!"EXHAUSTED".equals(state.searchStatus) || pendingListings || state.reassessmentPending
+        if (!state.searchComplete() || pendingListings || state.reassessmentPending
                 || state.batches.stream().anyMatch(batch -> !"SUCCEEDED".equals(batch.status))) return false;
         if (state.finishedAt == null) state.finishedAt = Instant.now().toString();
         if (!state.archived) {
@@ -106,6 +106,8 @@ final class DiscoveryDelivery {
         result.put("runId", state.id);
         result.put("iteration", state.iteration);
         result.put("query", state.query);
+        result.put("searchStatus", state.searchStatus);
+        result.put("samplingPageBudget", state.samplingPageBudget);
         result.put("protocol", Discovery.VERSION);
         result.put("finishedAt", state.finishedAt);
         result.put("queries", state.queries);

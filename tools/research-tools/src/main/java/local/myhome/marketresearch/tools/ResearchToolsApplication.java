@@ -47,7 +47,12 @@ public class ResearchToolsApplication {
                 return;
             }
             Map<String,Object> result;
-            if("fresh-investigation".equals(settings.command())) {
+            if("mail-report".equals(settings.command()))result=ReportMail.send(
+                Path.of(environment.getRequiredProperty("research.report.smtp-file")),
+                Path.of(environment.getRequiredProperty("research.report.file")),
+                environment.getRequiredProperty("research.report.to"),
+                environment.getRequiredProperty("research.report.subject"));
+            else if("fresh-investigation".equals(settings.command())) {
                 if(settings.liveEnabled())throw new ToolFailure("Fresh cleanup requires live tools disabled.");
                 result=FreshInvestigation.run(root);
             }
