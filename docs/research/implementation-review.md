@@ -28,3 +28,11 @@ Historical invoices/account-wide usage are not inferred from local estimates. Un
 Explicit clearing removed the previous fetched files and research payloads. Owned databases retain sanitized operational status/usage projections and reset receipts. Historical rate/spending ledgers were byte-compared before and after clearing and were unchanged. Code, fixtures, configuration, Git history and conversation context remain.
 
 The current tree no longer contains previous dated business-result/baseline documents. New API inputs are built from newly fetched evidence and the new investigation's catalog, never old Git reports or agent conclusions. Historical conclusions remain recoverable only by deliberately inspecting version history, not as automatic research inputs.
+
+The explicit cleanup removed 108 fetched/result artifacts and cleared one existing service database's research tables. Four historical quota/spending ledgers were byte-identical afterward. Removed ignored payloads are not recoverable through Git; deleted tracked reports remain in version history.
+
+## Verification and allowance
+
+`mvn clean verify` passed: 112 tests, zero failures/errors/skips, using Surefire and Failsafe with synthetic/local HTTP fixtures. Regression coverage includes idle/no-change writes, provider contention recovery, untouched search siblings, semantic evidence/variant handoffs, bounded review sampling, brief intent/criteria, immutable complete archives, separate allowances and history-preserving clearing. No live provider acceptance run was performed.
+
+The separate allowance `research-quality-review-20261022` was created with zero commitments and status AWAITING_CAP. The user has not specified its USD amount. Paid calls remain disabled; authorizing its cap must not reset the historical ledgers.
