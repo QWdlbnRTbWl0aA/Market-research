@@ -52,6 +52,9 @@ Authentication and application security are out of scope while the system remain
 - For agent/API comparisons, freeze the agent's business analysis before implementation/OpenAI calls. Keep agent conclusions out of both providers' prompts. Label agent and API-pipeline results separately; deterministic preparation/validation is not a business recommender.
 - The larger comparison may add at most USD 1.63 to its recorded starting OpenAI cost, also respecting the persistent USD 2 stage ceiling. Do not reset either ledger. The user confirmed Gemini has no payment method; try its free text route explicitly with local limits, and never fall through to OpenAI during a Gemini comparison.
 - Keep refinement lightweight: bounded semantic grouping and query probes, not elaborate regex taxonomies or exhaustive pagination. Business analysis targets modest recurring receipts, price-neutrally, and distinguishes public purchase proxies from unavailable competitor revenue.
+- Continuous discoveries preserve service databases, incremental caches, archives, notices and schedules; experimental output cleanup must not erase them. Every stage needs an explicit stop/idle condition. Safety/budget/failure stops must not masquerade as search exhaustion.
+- Weekly trend monitoring is deterministic only. A significant sample change must wait for the operator's explicit approval before any new deep analysis. Generic resume is not that approval.
+- The content service's current handoff is an idea-to-product instruction brief, not generated assets or publication. Keep assumptions and unresolved questions visible.
 
 ## Engineering conventions
 

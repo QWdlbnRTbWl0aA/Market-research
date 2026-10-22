@@ -57,6 +57,6 @@ public class ProviderAccess {
     }
     private Path path(String name) {
         String value=env.getProperty(name);
-        return value==null ? null : Path.of(value);
+        return value==null||value.isBlank() ? null : Path.of(value);
     }
 }

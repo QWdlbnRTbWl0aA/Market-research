@@ -41,12 +41,14 @@ public class ResearchToolsApplication {
     @Bean ApplicationRunner execute(Settings settings, ModelSettings models, ComparisonSettings comparison, Environment environment, ObjectMapper json) {
         return arguments -> {
             Path root = settings.root().toAbsolutePath().normalize();
+            if("serve".equals(settings.command())){DiscoveryServer.run(root,environment);return;}
             if ("help".equals(settings.command())) {
-                System.out.println("Commands: replay/forecast/comparison-prepare (offline), provider-check (metadata), compare/collect-comparison/research/collect/discover (require research.tools.live-enabled=true).");
+                System.out.println("Commands: search-start, search-list, search-status, search-results, search-resume, search-cancel, search-approve-trend, search-dismiss-trend, search-notifications. Supply research.discovery.query/key or id. Experimental commands: replay/forecast/comparison-prepare (offline), provider-check (metadata), compare/collect-comparison/research/collect/discover (live-enabled required).");
                 return;
             }
             Map<String,Object> result;
-            if ("provider-check".equals(settings.command())) {
+            if (settings.command().startsWith("search-")) result=DiscoveryCli.run(settings.command(),environment);
+            else if ("provider-check".equals(settings.command())) {
                 result = new ModelPreflight(ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),
                     ProviderHttp.client("https://api.openai.com/v1",environment),json,models).run(root);
             }

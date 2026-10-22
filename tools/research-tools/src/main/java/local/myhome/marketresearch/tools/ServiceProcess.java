@@ -46,6 +46,7 @@ public final class ServiceProcess implements AutoCloseable {
         }
     }
     public URI base() { return base; }
+    public boolean alive(){return process.isAlive();}
     public double wallSeconds() { return ((stopped==0 ? System.nanoTime() : stopped)-started)/1_000_000_000.0; }
     public double cpuSeconds() { return cpuAtStop.toNanos()/1_000_000_000.0; }
     public void crash() throws Exception { stop(true); }
