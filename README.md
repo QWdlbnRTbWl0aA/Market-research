@@ -47,6 +47,8 @@ The requested reset cleared fetched evidence, research results, business conclus
 
 Normal incremental runs preserve their own evidence and caches. To deliberately clear research again, stop the services and explicitly run `--research.tools.command=fresh-investigation`. Each service clears its owned research tables while retaining operational projections and reset receipts. This is not ordinary run startup.
 
+The [Jewish printables live acceptance report](docs/research/2026-10-22-live-continuous-acceptance.md) records real Etsy/OpenAI usage, the bounded archived run, corrected defects, recovery checks and business-quality limitations. Technical completion does not certify every generated brief for unattended production.
+
 Historical experimental collection/replay/comparison code remains, along with test fixtures and methodology. Frozen-comparison commands now require freshly collected data and a new independently frozen baseline; they cannot replay the cleared investigation.
 
 ## Development

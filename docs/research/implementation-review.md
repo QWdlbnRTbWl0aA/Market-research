@@ -35,4 +35,4 @@ The explicit cleanup removed 108 fetched/result artifacts and cleared one existi
 
 `mvn clean verify` passed: 112 tests, zero failures/errors/skips, using Surefire and Failsafe with synthetic/local HTTP fixtures. Regression coverage includes idle/no-change writes, provider contention recovery, untouched search siblings, semantic evidence/variant handoffs, bounded review sampling, brief intent/criteria, immutable complete archives, separate allowances and history-preserving clearing. No live provider acceptance run was performed.
 
-The separate allowance `research-quality-review-20261022` was created with zero commitments and status AWAITING_CAP. The user has not specified its USD amount. Paid calls remain disabled; authorizing its cap must not reset the historical ledgers.
+At review completion, the separate allowance `research-quality-review-20261022` was created with zero commitments and status AWAITING_CAP. The user subsequently authorized USD 2 without resetting historical ledgers. The later [live acceptance report](2026-10-22-live-continuous-acceptance.md) records actual new usage; the original offline review itself made no paid calls.
