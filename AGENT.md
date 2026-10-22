@@ -47,7 +47,7 @@ Authentication and application security are out of scope while the system remain
 - Prefer Gemini's available free quota before using OpenAI for an equivalent operation.
 - Enforce Etsy limits locally with conservative request budgeting, throttling, and response-header reconciliation. Never rely solely on Etsy rejecting excess traffic.
 - Do not make image-generation calls until the user explicitly lifts the current restriction.
-- The current refinement/business-analysis stage has a persistent USD 2 OpenAI development/testing ceiling. Never reset its ledger during research cleanup or silently extend this authorization to scheduled production.
+- Historical refinement/business-analysis spending stays in its original persistent ledgers. New work uses a separate named OpenAI allowance, an explicitly confirmed USD cap and a separate paid-enabled flag. Never reset historical ledgers or infer recurring production authorization. A pending/missing cap authorizes no paid calls.
 - Fresh Halloween live runs must delete previous fetched research outputs using the explicit allowlist, preserving operational ledgers, code, test fixtures and documentation. Offline replay/forecast are not new searches.
 - For agent/API comparisons, freeze the agent's business analysis before implementation/OpenAI calls. Keep agent conclusions out of both providers' prompts. Label agent and API-pipeline results separately; deterministic preparation/validation is not a business recommender.
 - The larger comparison may add at most USD 1.63 to its recorded starting OpenAI cost, also respecting the persistent USD 2 stage ceiling. Do not reset either ledger. The user confirmed Gemini has no payment method; try its free text route explicitly with local limits, and never fall through to OpenAI during a Gemini comparison.
@@ -55,6 +55,8 @@ Authentication and application security are out of scope while the system remain
 - Continuous discoveries preserve service databases, incremental caches, archives, notices and schedules; experimental output cleanup must not erase them. Every stage needs an explicit stop/idle condition. Safety/budget/failure stops must not masquerade as search exhaustion.
 - Weekly trend monitoring is deterministic only. A significant sample change must wait for the operator's explicit approval before any new deep analysis. Generic resume is not that approval.
 - The content service's current handoff is an idea-to-product instruction brief, not generated assets or publication. Keep assumptions and unresolved questions visible.
+- Research exhaustion is branch-local: two low-value cohorts from one branch must not stop untouched siblings. Added evidence for an existing opportunity does not trigger another product brief; meaningful variants require an explicit business distinction.
+- The user requested a fresh investigation on 2026-10-22. Previously fetched evidence and business conclusions have been cleared from active stores/current reports. Preserve implementation, configuration, fixtures, operational/usage history and conversation context. Do not automatically reuse historical Git business conclusions as new research priors.
 
 ## Engineering conventions
 

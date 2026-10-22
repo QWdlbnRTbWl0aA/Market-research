@@ -30,7 +30,8 @@ HTTP equivalent: POST `/v1/discoveries`, `Idempotency-Key`, body `{"query":"Jewi
 | Preparation | Page normalized, structurally filtered, deduplicated | Next page |
 | Refinement | At most three new focused queries per sampled intent; duplicate queries ignored; 80% clearly irrelevant sample ends that intent | Immediately execute accepted children |
 | Paging | Available results end, or two pages have under 10% globally new usable IDs | Next frontier query |
-| Broad search | Frontier empties, or two reviewed cohorts report no materially new product/family insight | Stop fetching, drain analysis |
+| Individual branch | Available/novel coverage ends or two reviewed branch cohorts report no materially new insight | Stop only this branch, retain siblings |
+| Broad search | Remaining frontier branches have each stopped | Stop fetching, drain analysis |
 | Business analysis | No eligible unprocessed cohort; batches of 500, smaller tail flushed at exhaustion/page boundary | Idle until fresh/meaningfully changed evidence |
 | Review | Critique plus schema/citation/required-field checks pass | Hand off concrete recommendations |
 | Product definition | Brief and critique pass file/reference/QA contract checks | Idle until next recommendation |
@@ -49,11 +50,17 @@ Recommendations include a specific product, buyer/use case, counted deliverables
 
 Results are labeled `analysisOrigin=API_PIPELINE`, not the developer agent's independent conclusions. JSON/citation validation and self-critique are not proof of business accuracy.
 
+Cohort reasoning and critique receive a persistent opportunity catalog and return NEW, MEANINGFUL_VARIANT or ADDITIONAL_EVIDENCE with a target ID and rationale. Only new opportunities and meaningful variants create briefs; more citations, prices or wording changes update support without another definition/review pair. Catalog context is bounded to 100 opportunities per prompt; semantic matching remains a model judgment.
+
+Shop samples span cohort engagement quantiles, not simply the first ranked shops. By default each cohort can select up to six profiles, within 50 total; shop-review probes are capped at eight and listing-review probes at four per investigation. Each probe returns up to 25 sanitized reviews with observation dates and evidence IDs. Empty responses are cached too. These are convenience samples and purchase proxies, not representative demand estimates.
+
 ## Idea-to-product contract
 
 POST `/v1/product-definition-jobs` takes an idempotency key and `ProductDefinition.Request`: run/query, reviewed recommendation and cited listing records. Returns 202/Location; GET polls; DELETE cancels; explicit POST `/{id}/resume` retries a blocked job.
 
 The reviewed brief defines product/buyer/use, exact files/formats/dimensions/counts/contents, artistic style/palette/typography/layout/constraints, listing references and originality restrictions, commercial context, production acceptance checks, explicit assumptions and unresolved questions. A complete schema can still contain visible unresolved questions; it is not silently declared production-ready.
+
+Idea-to-Product independently chooses exact contents/counts/specifications; recommendation quantities are not binding. Buyer/use-case anchors remain unchanged and critique explains how the specification preserves the buying purpose. Per-file criteria include expected counts and dimensions matching the actual file specs and explicit verification methods. READY is forbidden while unresolved questions remain. This validates the instructions, not an asset that has actually been generated.
 
 References resolve to `https://www.etsy.com/listing/{listingId}`. IDs/links satisfy this contract; pictures are not downloaded or claimed as licensed assets. No asset generation, Etsy writes or publishing occurs.
 
@@ -71,8 +78,16 @@ SMTP remains disabled until supplied outside the repo: `spring.mail.host/port/us
 
 Service-owned databases retain discoveries, caches, handoffs, archives, notices and schedules across normal runs. Experimental Halloween cleanup remains separate; it does not reset databases or provider ledgers.
 
-The shared Etsy ledger enforces 400 rolling-day attempts by default, two-second spacing and daily reserve. Gemini retains twelve attempts/Pacific day and minimum 61-second spacing; known free-quota exhaustion waits for reset. Explicit Gemini never silently falls through to OpenAI. OpenAI is opt-in, within the historical persistent development ceiling; no recurring paid allowance is implied.
+Idle work uses indexed due projections and performs no aggregate loading/serialization/writes. Unchanged job polls do not save; known quota waits are not busy-polled. Archives contain sanitized source pages with dates/digests, complete cohort requests, shop/review context, catalog support, model instructions/context, drafts, results and usage records. A frozen archive outbox makes retries independent of later source changes.
+
+The shared Etsy ledger enforces 400 rolling-day attempts by default, two-second spacing and daily reserve. Gemini retains twelve attempts/Pacific day and minimum 61-second spacing; known free-quota exhaustion waits for reset. Explicit Gemini never silently falls through to OpenAI. OpenAI requires a named ACTIVE allowance and `research.runtime.paid-enabled=true`; historical limits/ledgers are not reset or reused as a new authorization.
+
+Create a separate allowance with `--research.tools.command=new-allowance --research.allowance.id=NEW_ID --research.allowance.usd=CONFIRMED_CAP`. Omit the amount to create AWAITING_CAP, which permits no spending. Confirm that pending amount once with `--research.tools.command=confirm-allowance --research.allowance.id=NEW_ID --research.allowance.usd=CONFIRMED_CAP`. These commands never send model requests or reset an existing allowance. Select its ID through `research.runtime.openai-allowance-id` only when paid use is authorized.
 
 Incremental model calls are approximately one refinement per visited query, two per fresh cohort, two per accepted new product, plus two for an operator-approved group reassessment. Weekly watches use none. The historical USD 0.55 comparison is not a measurement of this new batching strategy; forecast from actual new-run token ledgers, not a full 5,000-listing rescan every day.
+
+Use `--research.tools.command=usage-report` for per-stage invocations/request attempts, reported input/output/cached tokens, elapsed time and conservative cost estimates. Unknown attempts and uncertain reservations are not zero spend; totals with unknown usage remain explicitly incomplete. Business/content critique stays enabled because removing it would compromise validation. Validated identical refinements and unchanged-listing analysis are cached.
+
+To explicitly start fresh, stop services and run `--research.tools.command=fresh-investigation`. Each service clears only its owned research tables and preserves operational status/usage projections and reset receipts. Fetched files, raw model responses, semantic caches, recommendations and archives are discarded. Historical usage/rate ledgers, fixtures, code and configuration are preserved. This action is not routine startup and must not be run concurrently with research.
 
 Surefire covers domain/cache/citation/schema/idempotency/cancellation/interruption behavior. Failsafe covers actual HTTP job APIs and a 1,050-listing orchestrator lifecycle using local downstream protocol fixtures; existing packaged-service restart tests remain. Automated tests use no external provider calls or credentials. New full live-provider acceptance and SMTP delivery require separate verification.

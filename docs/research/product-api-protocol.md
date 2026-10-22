@@ -1,6 +1,6 @@
 # Product-level API reasoning protocol
 
-The [frozen agent baseline](2026-10-22-agent-baseline.md) is a separate research artifact. It is never model input. The implemented protocol is `ProductReasoning.VERSION`; request files save the actual instructions, evidence and canonical input hash. See [ADR 0008](../adr/0008-agent-baseline-and-model-product-comparison.md) for decisions and limitations.
+A frozen agent baseline is a separate research artifact, never model input. The previous baseline was deliberately cleared; any new comparison must create a fresh one. The implemented protocol is `ProductReasoning.VERSION`; request files save the actual instructions, evidence and canonical input hash. See [ADR 0008](../adr/0008-agent-baseline-and-model-product-comparison.md) for historical protocol decisions and limitations.
 
 ## Run the comparison
 
