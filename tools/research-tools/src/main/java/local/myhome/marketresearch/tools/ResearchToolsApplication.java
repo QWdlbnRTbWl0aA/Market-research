@@ -43,11 +43,23 @@ public class ResearchToolsApplication {
             Path root = settings.root().toAbsolutePath().normalize();
             if("serve".equals(settings.command())){DiscoveryServer.run(root,environment);return;}
             if ("help".equals(settings.command())) {
-                System.out.println("Commands: search-start, search-list, search-status, search-results, search-resume, search-cancel, search-approve-trend, search-dismiss-trend, search-notifications. Supply research.discovery.query/key or id. Experimental commands: replay/forecast/comparison-prepare (offline), provider-check (metadata), compare/collect-comparison/research/collect/discover (live-enabled required).");
+                System.out.println("Commands: search-start, search-list, search-status, search-results, search-resume, search-cancel, search-approve-trend, search-dismiss-trend, search-notifications. Supply research.discovery.query/key or id. Maintenance: new-allowance, confirm-allowance, usage-report, fresh-investigation (destructive research-data reset; stop services first). Experimental commands: replay/forecast/comparison-prepare (offline), provider-check (metadata), compare/collect-comparison/research/collect/discover (live-enabled required).");
                 return;
             }
             Map<String,Object> result;
-            if (settings.command().startsWith("search-")) result=DiscoveryCli.run(settings.command(),environment);
+            if("fresh-investigation".equals(settings.command())) {
+                if(settings.liveEnabled())throw new ToolFailure("Fresh cleanup requires live tools disabled.");
+                result=FreshInvestigation.run(root);
+            }
+            else if("new-allowance".equals(settings.command())) {
+                String cap=environment.getProperty("research.allowance.usd");
+                result=OpenAiAllowance.start(root,environment.getRequiredProperty("research.allowance.id"),
+                    cap==null?null:new java.math.BigDecimal(cap),json);
+            }
+            else if("confirm-allowance".equals(settings.command()))result=OpenAiAllowance.confirm(root,
+                environment.getRequiredProperty("research.allowance.id"),new java.math.BigDecimal(environment.getRequiredProperty("research.allowance.usd")),json);
+            else if("usage-report".equals(settings.command()))result=StageUsageReport.read(root,json);
+            else if (settings.command().startsWith("search-")) result=DiscoveryCli.run(settings.command(),environment);
             else if ("provider-check".equals(settings.command())) {
                 result = new ModelPreflight(ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),
                     ProviderHttp.client("https://api.openai.com/v1",environment),json,models).run(root);
@@ -70,7 +82,8 @@ public class ResearchToolsApplication {
                     if(!java.util.Set.of("gemini","openai").contains(provider))throw new ToolFailure("Choose gemini or openai explicitly.");
                     Path output=Files.createTempDirectory(root.resolve("data/halloween-run/comparison"),"api-"+provider+"-");
                     var reasoning=new ResearchModels(ProviderHttp.client("https://api.openai.com/v1",environment),
-                        ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),models,json,root);
+                        ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),models,json,root)
+                        .scoped(environment.getProperty("research.runtime.openai-allowance-id"),environment.getProperty("research.runtime.paid-enabled",Boolean.class,false));
                     result=new ProductComparison(corpus,json,(purpose,instructions,evidence)->
                         reasoning.askOn(provider,purpose,instructions,evidence,ceiling,750_000),output).run(provider);
                 }
@@ -105,7 +118,8 @@ public class ResearchToolsApplication {
                 if("collect-comparison".equals(settings.command()))result=new LargeSampleCollector(root,gateway,ledger,json).run();
                 else if ("research".equals(settings.command())) {
                     var reasoning=new ResearchModels(ProviderHttp.client("https://api.openai.com/v1",environment),
-                        ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),models,json,root);
+                        ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",environment),models,json,root)
+                        .scoped(environment.getProperty("research.runtime.openai-allowance-id"),environment.getProperty("research.runtime.paid-enabled",Boolean.class,false));
                     result=new HalloweenResearchRun(root,gateway,ledger,reasoning,json).run();
                 } else {
                     RunWorkspace.clean(root);

@@ -14,11 +14,17 @@ final class ModelBudget {
     private final Path directory; private final ObjectMapper json;
     private final BigDecimal ceiling;
     private final int inputLimit;
+    private final String allowanceId;
     ModelBudget(Path directory,ObjectMapper json){this(directory,json,new BigDecimal("2"),150_000);}
     ModelBudget(Path directory,ObjectMapper json,BigDecimal ceiling,int inputLimit){
         if(ceiling.signum()<=0 || ceiling.compareTo(new BigDecimal("2"))>0 || inputLimit<1 || inputLimit>750_000)
             throw new IllegalArgumentException("Invalid provider budget");
-        this.directory=directory;this.json=json;this.ceiling=ceiling;this.inputLimit=inputLimit;
+        this.directory=directory;this.json=json;this.ceiling=ceiling;this.inputLimit=inputLimit;this.allowanceId=null;
+    }
+    ModelBudget(Path directory,ObjectMapper json,int inputLimit,String allowanceId) throws Exception {
+        if(inputLimit<1||inputLimit>750_000)throw new IllegalArgumentException("Invalid input bound");
+        this.directory=directory;this.json=json;this.inputLimit=inputLimit;this.allowanceId=allowanceId;
+        this.ceiling=OpenAiAllowance.limit(directory,allowanceId,json);
     }
     @SuppressWarnings("unchecked")
     Map<String,Object> openai(String purpose,int inputByteBound,int outputCap,Call call) throws Exception {
@@ -27,18 +33,19 @@ final class ModelBudget {
         try(var channel=FileChannel.open(directory.resolve("openai-stage.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
                 var lock=channel.tryLock()) {
             if(lock==null) throw new ProviderBusy();
-            Path file=directory.resolve("openai-stage.json");
+            Path file=allowanceId==null?directory.resolve("openai-stage.json"):OpenAiAllowance.file(directory,allowanceId);
             Map<String,Object> state=Files.exists(file)?json.readValue(Files.readString(file),Map.class):new LinkedHashMap<>();
             BigDecimal committed=new BigDecimal(state.getOrDefault("committedUsd",0).toString());
             BigDecimal reservation=cost(inputByteBound+4096,outputCap);
-            if(committed.add(reservation).compareTo(ceiling)>0)
+            BigDecimal authorized=allowanceId==null?ceiling:ceiling.min(OpenAiAllowance.limit(directory,allowanceId,json));
+            if(committed.add(reservation).compareTo(authorized)>0)
                 throw new ToolFailure("OpenAI spending ceiling would be exceeded; no call sent.");
             List<Map<String,Object>> calls=new ArrayList<>((List<Map<String,Object>>)state.getOrDefault("calls",List.of()));
             Map<String,Object> event=new LinkedHashMap<>();
             event.put("purpose",purpose);event.put("model","gpt-5.4-mini");event.put("at",Instant.now().toString());
             event.put("reservedUsd",reservation);event.put("status","RESERVED_OR_UNCERTAIN");
-            calls.add(event);state.put("calls",calls);state.put("budgetUsd",2);
-            state.put("effectiveCeilingUsd",ceiling);
+            calls.add(event);state.put("calls",calls);if(allowanceId==null)state.put("budgetUsd",2);
+            state.put("effectiveCeilingUsd",authorized);
             state.put("committedUsd",committed.add(reservation));PrivateJson.write(file,state,json);
             Outcome result=call.execute();
             if(result.inputTokens()<0 || result.outputTokens()<0) throw new ToolFailure("Provider usage unavailable; reservation retained.");

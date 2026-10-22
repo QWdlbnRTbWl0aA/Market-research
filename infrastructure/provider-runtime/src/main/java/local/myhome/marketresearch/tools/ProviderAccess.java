@@ -11,6 +11,8 @@ public class ProviderAccess {
     private final Environment env;
     private final ObjectMapper json;
     private final Path root;
+    private final ThreadLocal<Map<String,Object>> lastUsage=new ThreadLocal<>();
+    public Map<String,Object> lastUsage(){return lastUsage.get();}
     public ProviderAccess(Environment env, ObjectMapper json) {
         this.env=env; this.json=json;
         root=Path.of(env.getProperty("research.runtime.root",".")).toAbsolutePath().normalize();
@@ -23,6 +25,14 @@ public class ProviderAccess {
     public Map<String,Object> shop(String id) throws Exception {
         if(!id.matches("[0-9]+"))throw new IllegalArgumentException("Invalid shop");
         return etsy("/shops/"+id);
+    }
+    public Map<String,Object> shopReviews(String id) throws Exception {
+        if(!id.matches("[0-9]+"))throw new IllegalArgumentException("Invalid shop");
+        return etsy("/shops/"+id+"/reviews?limit=25");
+    }
+    public Map<String,Object> listingReviews(String id) throws Exception {
+        if(!id.matches("[0-9]+"))throw new IllegalArgumentException("Invalid listing");
+        return etsy("/listings/"+id+"/reviews?limit=25");
     }
     public Map<String,Object> etsy(String path) throws Exception {
         if(!env.getProperty("research.runtime.live-enabled",Boolean.class,false))
@@ -51,9 +61,26 @@ public class ProviderAccess {
                 .isBefore(java.time.Instant.now().minusSeconds(23*3600)))
             new ModelPreflight(ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",env),
                 ProviderHttp.client("https://api.openai.com/v1",env),json,settings).run(root);
-        // Paid fallback is opt-in; no recurring paid allowance is inferred from the development ceiling.
-        return models.askOn(env.getProperty("research.runtime.model-provider","gemini"),purpose,instruction,evidence,
-            new BigDecimal(env.getProperty("research.runtime.openai-ceiling-usd","1.9995175")),750_000);
+        String route=env.getProperty("research.runtime.model-provider","gemini");
+        if(!env.getProperty("research.runtime.paid-enabled",Boolean.class,false)) {
+            if("openai".equals(route))throw new ToolFailure("Paid calls are disabled");
+            route="gemini";
+        }
+        String allowance=env.getProperty("research.runtime.openai-allowance-id");
+        if(!"gemini".equals(route)&&(allowance==null||allowance.isBlank()))
+            throw new ToolFailure("Select a fresh OpenAI allowance explicitly");
+        String invocation=java.util.UUID.randomUUID().toString();
+        long started=System.nanoTime();boolean succeeded=false;
+        try {
+            var result=models.askOn(route,purpose+"#"+invocation,instruction,evidence,BigDecimal.ONE,750_000,allowance);
+            succeeded=true;return result;
+        } finally {
+            var record=new LinkedHashMap<String,Object>(models.usage());
+            record.put("invocationId",invocation);record.put("stage",purpose);record.put("at",java.time.Instant.now().toString());
+            record.put("durationMillis",(System.nanoTime()-started)/1_000_000);record.put("status",succeeded?"SUCCEEDED":"FAILED_OR_DEFERRED");
+            lastUsage.set(record);
+            PrivateJson.write(root.resolve("data/provider-ledgers/stage-usage/"+invocation+".json"),record,json);
+        }
     }
     private Path path(String name) {
         String value=env.getProperty(name);
