@@ -9,6 +9,7 @@ spring:
   application:
     name: research-archive-service
 server:
+  address: 127.0.0.1
   port: ${ARCHIVE_PORT:8084}
 market-research:
   archive:
