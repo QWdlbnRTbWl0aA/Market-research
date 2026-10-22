@@ -24,6 +24,7 @@ import tools.jackson.databind.ObjectMapper;
 public class DiscoveryJobs {
     private final JdbcTemplate db; private final ObjectMapper json; private final ProviderAccess provider;
     private final TransactionTemplate tx; private final String cacheVersion;
+    private final OpportunityCatalog opportunities;
     @org.springframework.beans.factory.annotation.Autowired
     public DiscoveryJobs(JdbcTemplate db,ObjectMapper json,Environment env,PlatformTransactionManager manager,ProviderAccess provider) {
         this(db,json,provider,manager,Discovery.VERSION+":"+env.getProperty("research.runtime.model-provider","gemini")
@@ -35,6 +36,10 @@ public class DiscoveryJobs {
         db.execute("CREATE TABLE IF NOT EXISTS discovery_jobs(id VARCHAR(36) PRIMARY KEY, idem VARCHAR(200) UNIQUE, payload CLOB, status VARCHAR(30), phase VARCHAR(30), draft CLOB, result CLOB, error VARCHAR(80), fresh INT DEFAULT 0, cached INT DEFAULT 0)");
         db.execute("CREATE TABLE IF NOT EXISTS discovery_cache(scope VARCHAR(64), listing_id VARCHAR(40), fingerprint VARCHAR(64), PRIMARY KEY(scope,listing_id))");
         db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS next_attempt BIGINT DEFAULT 0");
+        db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS call_inputs CLOB");
+        db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS usage_json CLOB");
+        db.execute("CREATE TABLE IF NOT EXISTS discovery_refinement_cache(cache_key VARCHAR(64) PRIMARY KEY, result CLOB)");
+        opportunities=new OpportunityCatalog(db,json);
         // A crash during provider I/O is ambiguous: never silently rebill the same operation.
         db.update("UPDATE discovery_jobs SET status='BLOCKED',error='INTERRUPTED_PROVIDER_OPERATION' WHERE status='RUNNING'");
     }
@@ -75,11 +80,16 @@ public class DiscoveryJobs {
         try {
             var request=json.readValue(stored(row.get("PAYLOAD")),Task.class);
             if("REFINE".equals(request.kind())) {
-                var value=json.convertValue(provider.reason("discovery-refinement",DiscoveryPrompts.REFINE,request),Refinement.class);
+                String cacheKey=hash(cacheVersion+json.writeValueAsString(request));
+                var cached=db.queryForList("SELECT result FROM discovery_refinement_cache WHERE cache_key=?",cacheKey);
+                if(!cached.isEmpty()) {finish(id,stored(cached.getFirst().get("RESULT")));return;}
+                var value=json.convertValue(call(id,"discovery-refinement",DiscoveryPrompts.REFINE,request),Refinement.class);
                 require(value.queries()!=null&&value.queries().size()<=3&&value.queries().stream().allMatch(q->q!=null&&!q.isBlank()&&q.length()<=300)
                     &&value.families()!=null&&value.families().size()<=30&&value.reason()!=null,"Invalid refinement");
                 require(request.listings().stream().map(Listing::id).collect(java.util.stream.Collectors.toSet()).containsAll(value.excludedListingIds()),"Unknown exclusion ID");
-                finish(id,json.writeValueAsString(value));return;
+                String result=json.writeValueAsString(value);
+                db.update("MERGE INTO discovery_refinement_cache KEY(cache_key) VALUES(?,?)",cacheKey,result);
+                finish(id,result);return;
             }
             boolean reassess="REASSESS".equals(request.kind());
             var fresh=reassess?request.listings():request.listings().stream().filter(l->!cached(request.query(),l)).toList();
@@ -90,21 +100,24 @@ public class DiscoveryJobs {
                 reassess?"":l.description()==null?"":l.description().substring(0,Math.min(160,l.description().length())),
                 reassess||l.tags()==null?List.<String>of():l.tags().stream().limit(5).toList(),
                 l.price(),l.currency(),l.views(),l.favorites(),l.createdAt())).toList();
-            var effective=new Task(request.kind(),request.query(),compact,request.shops(),request.previousFamilies(),request.previousSummaries());
+            var effective=new Task(request.kind(),request.query(),compact,request.shops(),request.previousFamilies(),
+                request.previousSummaries(),request.branch(),request.reviews(),opportunities.list(request.query()).stream().limit(100).toList());
             if("PREPARE".equals(row.get("PHASE"))) {
-                var draft=json.convertValue(provider.reason(reassess?"discovery-group-reassessment":"discovery-business",
+                var draft=json.convertValue(call(id,reassess?"discovery-group-reassessment":"discovery-business",
                     DiscoveryPrompts.ANALYZE+(reassess?"\nThis is an explicitly approved GROUP reassessment after a trend alert. Reuse prior cohort conclusions; do not rescan unchanged listings. Compact listings only ground citations and current price/proxy context. Compare the supplied trend evidence and refreshed shop facts.":""),effective),Assessment.class);
                 validate(draft,effective);
                 db.update("UPDATE discovery_jobs SET draft=?,phase='REVIEW',status='ACCEPTED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(draft),id);
             } else {
                 var draft=json.readValue(stored(row.get("DRAFT")),Assessment.class);
                 var cited=draft.products().stream().flatMap(p->p.listingIds().stream()).collect(java.util.stream.Collectors.toSet());
-                var reviewed=json.convertValue(provider.reason("discovery-review",DiscoveryPrompts.REVIEW,
+                var reviewed=json.convertValue(call(id,"discovery-review",DiscoveryPrompts.REVIEW,
                     Map.of("cohort",effective,"draft",draft,"citedOriginals",
                         fresh.stream().filter(l->cited.contains(l.id())).toList())),Assessment.class);
                 validate(reviewed,effective);
                 tx.executeWithoutResult(s->{
-                    if(db.update("UPDATE discovery_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(reviewed),id)==1)
+                    if(!"RUNNING".equals(db.queryForObject("SELECT status FROM discovery_jobs WHERE id=? FOR UPDATE",String.class,id)))return;
+                    var resolved=opportunities.accept(id,request,reviewed);
+                    if(db.update("UPDATE discovery_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(resolved),id)==1)
                         for(var l:fresh)db.update("MERGE INTO discovery_cache KEY(scope,listing_id) VALUES(?,?,?)",scope(request.query()),l.id(),fingerprint(l));
                 });
             }
@@ -117,6 +130,33 @@ public class DiscoveryJobs {
         }
     }
     private void finish(String id,String result) {db.update("UPDATE discovery_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",result,id);}
+    private Map<String,Object> call(String jobId,String stage,String prompt,Object evidence) throws Exception {
+        var existing=db.queryForObject("SELECT call_inputs FROM discovery_jobs WHERE id=?",String.class,jobId);
+        Map<String,Object> inputs=existing==null?new LinkedHashMap<>():json.readValue(existing,Map.class);
+        inputs.put(stage,Map.of("instructions",prompt,"evidence",evidence,"modelContext",cacheVersion));
+        db.update("UPDATE discovery_jobs SET call_inputs=? WHERE id=?",json.writeValueAsString(inputs),jobId);
+        try {return provider.reason(stage,prompt,evidence);}
+        finally {
+            var usage=provider.lastUsage();
+            if(usage!=null) {
+                String previous=db.queryForObject("SELECT usage_json FROM discovery_jobs WHERE id=?",String.class,jobId);
+                List<Object> records=previous==null?new ArrayList<>():json.readValue(previous,List.class);
+                records.add(usage);db.update("UPDATE discovery_jobs SET usage_json=? WHERE id=?",json.writeValueAsString(records),jobId);
+            }
+        }
+    }
+    public Map<String,Object> evidence(UUID id) {
+        var view=get(id);
+        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json FROM discovery_jobs WHERE id=?",id.toString());
+        var task=json.readValue(stored(row.get("PAYLOAD")),Task.class);
+        var evidence=new LinkedHashMap<String,Object>();
+        evidence.put("request",task);evidence.put("result",view);
+        evidence.put("calls",row.get("CALL_INPUTS")==null?Map.of():json.readValue(stored(row.get("CALL_INPUTS")),Map.class));
+        evidence.put("draft",row.get("DRAFT")==null?null:json.readValue(stored(row.get("DRAFT")),Map.class));
+        evidence.put("usage",row.get("USAGE_JSON")==null?List.of():json.readValue(stored(row.get("USAGE_JSON")),List.class));
+        if(view.assessment()!=null)evidence.put("opportunitySupport",opportunities.supportingEvidence(task,view.assessment()));
+        return evidence;
+    }
     private String scope(String query){return hash(cacheVersion+":"+query.strip().toLowerCase(Locale.ROOT));}
     private boolean cached(String query,Listing listing) {
         return !db.queryForList("SELECT listing_id FROM discovery_cache WHERE scope=? AND listing_id=? AND fingerprint=?",
@@ -140,7 +180,10 @@ public class DiscoveryJobs {
             &&text(p.recurringRevenueHypothesis())&&text(p.automationPlan())&&text(p.manualWorkAssumptions())
             &&text(p.seasonality())&&p.listingIds()!=null&&!p.listingIds().isEmpty()&&p.listingIds().size()<=20&&ids.containsAll(p.listingIds())
             &&p.counterevidence()!=null&&!p.counterevidence().isEmpty()&&p.confidence()!=null&&Set.of("LOW","MEDIUM","HIGH").contains(p.confidence())
-            &&text(p.confidenceExplanation())&&text(p.experiment()),"Invalid or ungrounded recommendation");
+            &&text(p.confidenceExplanation())&&text(p.experiment())&&p.relationship()!=null
+            &&Set.of("NEW","MEANINGFUL_VARIANT","ADDITIONAL_EVIDENCE").contains(p.relationship())&&text(p.changeReason())
+            &&("NEW".equals(p.relationship())?p.existingOpportunityId()==null:
+                t.knownOpportunities().stream().anyMatch(o->o.id().equals(p.existingOpportunityId()))),"Invalid or ungrounded recommendation");
     }
     static boolean text(String s){return s!=null&&!s.isBlank();}
     static String stored(Object value) {

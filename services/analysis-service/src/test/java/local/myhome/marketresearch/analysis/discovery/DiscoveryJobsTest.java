@@ -88,4 +88,43 @@ class DiscoveryJobsTest {
         db.update("UPDATE discovery_jobs SET next_attempt=0 WHERE id=?",job.id().toString());
         jobs.tick();jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
     }
+    @Test void semanticRelationshipsReuseAnOpportunityButPreserveMeaningfulVariants() throws Exception {
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(report());
+        var first=jobs.submit("opportunity-a",task(List.of(listing(1,"First listing",1))));
+        jobs.tick();jobs.tick();
+        String id=jobs.get(first.id()).assessment().products().getFirst().opportunityId();
+        assertNotNull(id);
+        var additional=product().related("ADDITIONAL_EVIDENCE",id,"Same buyer need despite different wording and source").resolved(null);
+        var more=json.convertValue(new Assessment("Additional support",List.of(),List.of(additional),List.of("Proxy"),false,"Known opportunity"),Map.class);
+        ((Map<String,Object>)((List<?>)more.get("products")).getFirst()).put("name","A differently worded title for the same classroom need");
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(more);
+        var second=jobs.submit("opportunity-b",task(List.of(listing(1,"Changed source",2))));
+        jobs.tick();jobs.tick();
+        var result=jobs.get(second.id()).assessment().products().getFirst();
+        assertEquals(id,result.opportunityId());assertEquals("ADDITIONAL_EVIDENCE",result.relationship());
+        assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM discovery_opportunities",Integer.class));
+        var variant=product().related("MEANINGFUL_VARIANT",id,"Different activity format solves a materially distinct classroom need");
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(
+            new Assessment("Material variant",List.of(),List.of(variant),List.of("Proxy")),Map.class));
+        var third=jobs.submit("opportunity-c",task(List.of(listing(1,"Another changed source",3))));
+        jobs.tick();jobs.tick();
+        assertEquals("SUCCEEDED",jobs.get(third.id()).status());
+        assertNotEquals(id,jobs.get(third.id()).assessment().products().getFirst().opportunityId());
+        assertEquals(2,db.queryForObject("SELECT COUNT(*) FROM discovery_opportunities",Integer.class));
+        var evidence=jobs.evidence(second.id());
+        assertFalse(((Map<?,?>)evidence.get("calls")).isEmpty());
+        assertFalse(((Map<?,?>)evidence.get("opportunitySupport")).isEmpty());
+    }
+    @Test void repeatedValidatedRefinementUsesCacheAndUnknownOpportunityTargetsAreRejected() throws Exception {
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(
+            new Refinement(List.of(),List.of("known"),"No further intent"),Map.class));
+        var request=new Task("REFINE","intent",List.of(listing(1,"Source",1)),List.of(),List.of(),List.of());
+        var first=jobs.submit("refine-a",request);jobs.tick();assertEquals("SUCCEEDED",jobs.get(first.id()).status());
+        var repeated=jobs.submit("refine-b",request);jobs.tick();assertEquals("SUCCEEDED",jobs.get(repeated.id()).status());
+        verify(provider,times(1)).reason(anyString(),anyString(),any());
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(new Assessment(
+            "Bad identity",List.of(),List.of(product().related("ADDITIONAL_EVIDENCE","nonexistent","Not a real target")),List.of()),Map.class));
+        var invalid=jobs.submit("bad-identity",task(List.of(listing(1,"Source",1))));
+        jobs.tick();assertEquals("BLOCKED",jobs.get(invalid.id()).status());
+    }
 }

@@ -13,6 +13,7 @@ public class DiscoveryController {
         var job=jobs.submit(key,task);return ResponseEntity.accepted().location(URI.create("/v1/discovery-jobs/"+job.id())).body(job);
     }
     @GetMapping("/{id}") public TaskView get(@PathVariable UUID id){return jobs.get(id);}
+    @GetMapping("/{id}/evidence") public java.util.Map<String,Object> evidence(@PathVariable UUID id){return jobs.evidence(id);}
     @DeleteMapping("/{id}") public void cancel(@PathVariable UUID id){jobs.cancel(id);}
     @PostMapping("/{id}/resume") public void resume(@PathVariable UUID id){jobs.resume(id);}
 }
