@@ -108,8 +108,9 @@ public class DiscoveryFlow {
             if(!"AWAITING_APPROVAL".equals(s.status))throw new ResponseStatusException(HttpStatus.CONFLICT,"No pending trend decision");
             s.iteration++;s.status="ACTIVE";s.searchStatus="ACTIVE";s.error=null;s.stableAnalyses=0;
             s.archived=false;s.notified=false;s.finishedAt=null;s.watchIndex=0;s.reassessmentPending=true;
-            for(var q:s.queries)if(q.successful) {
+            for(var q:s.queries)if(q.successful&&!"SPLIT_INTO_FOCUSED_SAMPLES".equals(q.stopReason)) {
                 q.status="OPEN";q.pages=0;q.lowNovelty=0;q.stopReason=null;
+                q.returned=0;q.usable=0;q.novel=0;q.total=0;
                 q.refined=false;q.refinementJob=null;q.refinementRequest=null;q.sample.clear();q.baseline.clear();
             }
             // Existing processed IDs stay excluded unless meaningful listing fields changed.

@@ -131,6 +131,9 @@ class DiscoveryFlowIT {
         flow.dismiss(id);assertEquals("WATCHING",flow.get(id).status);
         var decision=flow.get(id);decision.status="AWAITING_APPROVAL";store.save(decision);
         flow.approve(id);assertEquals(2,flow.get(id).iteration);assertTrue(flow.get(id).reassessmentPending);
+        assertEquals("DONE",flow.get(id).queries.getFirst().status,"Do not refetch the superseded broad pool after a focused-query trend alert");
+        assertEquals(0,flow.get(id).queries.get(1).pages);
+        assertEquals(0,flow.get(id).queries.get(1).returned);
         assertEquals(id,flow.start("broad","Jewish printables").id);
         flow.cancel(id);flow.deliveryTick();assertEquals("CANCELLED",flow.get(id).status);
     }
