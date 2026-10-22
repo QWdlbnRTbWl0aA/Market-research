@@ -21,6 +21,11 @@ public class DiscoveryArchive {
             if(iteration<1||snapshot.get("finishedAt")==null||!(snapshot.get("query") instanceof String)
                 ||!(snapshot.get("assessments") instanceof List<?>)||!(snapshot.get("productDefinitions") instanceof List<?>))
                 throw new IllegalArgumentException();
+            if("discovery-v2".equals(snapshot.get("protocol"))) {
+                for(String field:List.of("listings","shops","reviews","analysisEvidence","contentEvidence"))
+                    if(!(snapshot.get(field) instanceof Map<?,?>))throw new IllegalArgumentException();
+                if(!(snapshot.get("sourcePages") instanceof List<?>))throw new IllegalArgumentException();
+            }
         }catch(RuntimeException error){throw new ResponseStatusException(HttpStatus.BAD_REQUEST);}
         String payload=json.writeValueAsString(snapshot);
         var rows=db.queryForList("SELECT snapshot FROM discovery_archives WHERE run_id=? AND iteration=?",id.toString(),iteration);

@@ -15,6 +15,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
 import local.myhome.marketresearch.contracts.analysis.Discovery.*;
 import local.myhome.marketresearch.contracts.content.ProductDefinition;
@@ -25,7 +26,8 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
     "research.discovery.search-delay-ms=3600000","research.discovery.analysis-delay-ms=3600000",
     "research.discovery.delivery-delay-ms=3600000","research.discovery.watch-delay-ms=3600000",
-    "research.notifications.delay-ms=3600000","research.discovery.batch-size=200","research.discovery.max-shops=2"})
+    "research.notifications.delay-ms=3600000","research.discovery.batch-size=200","research.discovery.max-shops=2",
+    "research.discovery.max-shop-review-requests=0","research.discovery.max-listing-review-requests=0"})
 class DiscoveryFlowIT {
     static final ObjectMapper JSON=new ObjectMapper();
     static final Map<UUID,TaskView> jobs=new ConcurrentHashMap<>();
@@ -36,7 +38,7 @@ class DiscoveryFlowIT {
     static final AtomicInteger analysisPosts=new AtomicInteger();
     static final HttpServer server=startServer();
     @LocalServerPort int port;
-    @Autowired DiscoveryFlow flow;@Autowired DiscoveryStore store;@Autowired DiscoveryNotices notices;@Autowired JdbcTemplate db;
+    @Autowired DiscoveryFlow flow;@MockitoSpyBean DiscoveryStore store;@Autowired DiscoveryNotices notices;@Autowired JdbcTemplate db;
     @MockitoBean ProviderAccess provider;
     @DynamicPropertySource static void configure(DynamicPropertyRegistry r) {
         String url="http://127.0.0.1:"+server.getAddress().getPort();
@@ -55,7 +57,8 @@ class DiscoveryFlowIT {
         try {
             String path=x.getRequestURI().getPath(),method=x.getRequestMethod();Object result=null;
             if(method.equals("DELETE")||path.endsWith("/resume")){x.sendResponseHeaders(204,-1);return;}
-            if(path.equals("/v1/discovery-jobs")&&method.equals("POST")) {
+            if(path.endsWith("/evidence"))result=Map.of("fixture","Synthetic stage evidence","protocol","discovery-v2");
+            else if(path.equals("/v1/discovery-jobs")&&method.equals("POST")) {
                 analysisPosts.incrementAndGet();var task=JSON.readValue(x.getRequestBody(),Task.class);
                 String key=x.getRequestHeaders().getFirst("Idempotency-Key");
                 UUID id=keys.computeIfAbsent(key,k->UUID.randomUUID());
@@ -91,7 +94,7 @@ class DiscoveryFlowIT {
     static Product product(String id) {
         return new Product("TEST_FIXTURE four holiday activities "+id,"Teachers","Classroom",List.of("Four PDF sheets"),"Original",
             BigDecimal.valueOf(3),"Unverified scenario","Template export","QA unknown","Season aligned",List.of(id),
-            List.of("No verified revenue"),"LOW","Test evidence","Season aligned experiment rule");
+            List.of("No verified revenue"),"LOW","Test evidence","Season aligned experiment rule").resolved("fixture-opportunity-"+id);
     }
     static Map<String,Object> row(int id,boolean digital) {
         return Map.of("listing_id",id,"shop_id",11+id%2,"title","TEST_FIXTURE printable "+id,"description","Original activity contents",
@@ -100,6 +103,16 @@ class DiscoveryFlowIT {
     void tickUntil(UUID id,String status) {
         for(int i=0;i<200&&!flow.get(id).status.equals(status);i++){flow.searchTick();flow.analysisTick();flow.deliveryTick();}
         assertEquals(status,flow.get(id).status,"error="+flow.get(id).error);assertNull(serverFailure.get());
+    }
+    @Test void localProviderContentionRestoresPersistedOpenBranchWithoutConsumingPage() throws Exception {
+        when(provider.search(anyString(),anyInt(),anyInt())).thenThrow(new ProviderBusy());
+        var state=flow.start("busy-search","Synthetic printable search");
+        flow.searchTick();
+        var waiting=flow.get(state.id);
+        assertEquals("OPEN",waiting.queries.getFirst().status);
+        assertEquals(0,waiting.queries.getFirst().pages);
+        assertEquals("ACTIVE",waiting.status);
+        verify(provider).search(anyString(),anyInt(),eq(0));
     }
     @Test void broadSearchRunsThroughRefinementCohortAnalysisBriefsArchiveAndApprovalGatedWatch() throws Exception {
         when(provider.search(anyString(),anyInt(),anyInt())).thenAnswer(call->{
@@ -119,6 +132,10 @@ class DiscoveryFlowIT {
         assertEquals(6,completed.batches.size());assertEquals(6,completed.handoffs.size());
         assertTrue(completed.handoffs.stream().allMatch(h->h.brief!=null));
         assertEquals(1,archived.size());assertEquals(1,notices.list().size());
+        assertEquals(1050,((Map<?,?>)archived.getFirst().get("listings")).size());
+        assertFalse(((List<?>)archived.getFirst().get("sourcePages")).isEmpty());
+        assertFalse(((Map<?,?>)archived.getFirst().get("analysisEvidence")).isEmpty());
+        assertFalse(((Map<?,?>)archived.getFirst().get("contentEvidence")).isEmpty());
         notices.tick();assertEquals("WAITING_CONFIGURATION",notices.list().getFirst().get("STATUS"));
         int posts=analysisPosts.get();
         completed.nextWatch=0;store.save(completed);
@@ -152,30 +169,37 @@ class DiscoveryFlowIT {
         restarted.resume(run.id);assertEquals("OPEN",restarted.get(run.id).queries.getFirst().status);
         restarted.cancel(run.id);restarted.deliveryTick();assertEquals("CANCELLED",restarted.get(run.id).status);
     }
-    @Test void twoReviewedCohortsWithoutNewInsightStopFetchingButDrainTheQueue() {
-        var run=flow.start("saturation","Jewish printables");run.stableAnalyses=1;
+    @Test void exhaustedBranchCannotAbandonAnUnexploredSibling() throws Exception {
+        var run=flow.start("saturation","Jewish printables");run.queries.getFirst().stableAnalyses=1;
+        run.queries.add(new DiscoveryState.Query("unexplored focused intent",null));
         var l=new Listing("1","11","TEST_FIXTURE listing","Description",List.of(),BigDecimal.ONE,"USD",0,0,0);
         run.listings.put("1",l);
-        var batch=new DiscoveryState.Batch();batch.ids=List.of("1");batch.key="saturation-job";batch.job=UUID.randomUUID();
+        var batch=new DiscoveryState.Batch();batch.branch=run.query;batch.ids=List.of("1");batch.key="saturation-job";batch.job=UUID.randomUUID();
         batch.request=new Task("BUSINESS",run.query,List.of(l),List.of(),List.of(),List.of());run.batches.add(batch);
         jobs.put(batch.job,new TaskView(batch.job,"BUSINESS","SUCCEEDED",null,1,0,null,
             new Assessment("TEST_FIXTURE: no additional business insight",List.of(),List.of(),List.of("Sampling limit"),false,"Only repeats known product hypotheses")));
-        store.save(run);flow.analysisTick();assertEquals("SATURATING",flow.get(run.id).searchStatus);
-        flow.deliveryTick();assertEquals("EXHAUSTED",flow.get(run.id).searchStatus);
-        tickUntil(run.id,"WATCHING");assertEquals("TWO_COHORTS_WITHOUT_NEW_INSIGHT",flow.get(run.id).queries.getFirst().stopReason);
+        store.save(run);flow.analysisTick();flow.searchTick();
+        assertEquals("ACTIVE",flow.get(run.id).searchStatus);
+        assertEquals("DONE",flow.get(run.id).queries.getFirst().status);
+        assertEquals("OPEN",flow.get(run.id).queries.get(1).status);
         verifyNoInteractions(provider);
+        when(provider.search(eq("unexplored focused intent"),anyInt(),anyInt())).thenReturn(Map.of("count",0,"results",List.of()));
+        flow.searchTick();flow.searchTick();
+        assertEquals("EXHAUSTED",flow.get(run.id).searchStatus);
+        verify(provider,times(1)).search(eq("unexplored focused intent"),anyInt(),anyInt());
     }
     @Test void pageCapWaitsForAnalysisThenBlocksInsteadOfClaimingExhaustion() throws Exception {
         when(provider.search(anyString(),anyInt(),anyInt())).thenReturn(Map.of("count",10000,"results",
             java.util.stream.IntStream.rangeClosed(1,100).mapToObj(i->row(i,true)).toList()));
         String url="http://127.0.0.1:"+server.getAddress().getPort();
         var env=new org.springframework.mock.env.MockEnvironment().withProperty("research.discovery.max-pages-per-query","1")
-            .withProperty("research.discovery.batch-size","200").withProperty("research.discovery.max-shops","0");
+            .withProperty("research.discovery.batch-size","200").withProperty("research.discovery.max-shops","0")
+            .withProperty("research.discovery.max-listing-review-requests","0").withProperty("research.discovery.max-shop-review-requests","0");
         for(String name:List.of("analysis","content","archive"))env.withProperty("market-research.services."+name+"-base-url",url);
         var limited=new DiscoveryFlow(store,notices,JSON,env,provider);var run=limited.start("cap","Jewish printables");
         run.queries.getFirst().refined=true;store.save(run);
         limited.searchTick();limited.searchTick();assertEquals("ACTIVE",limited.get(run.id).status);
-        limited.analysisTick();limited.analysisTick();limited.analysisTick();limited.searchTick();
+        limited.analysisTick();limited.analysisTick();limited.analysisTick();limited.analysisTick();limited.searchTick();
         assertEquals("BLOCKED",limited.get(run.id).status);assertEquals("PAGE_SAFETY_LIMIT",limited.get(run.id).error);
         assertNotEquals("EXHAUSTED",limited.get(run.id).searchStatus);
     }
@@ -189,5 +213,34 @@ class DiscoveryFlowIT {
         store.save(run);tickUntil(run.id,"WATCHING");
         assertTrue(flow.get(run.id).excluded.contains("1"));assertTrue(flow.get(run.id).batches.isEmpty());
         assertEquals(0,analysisPosts.get());verifyNoInteractions(provider);
+    }
+    @Test void idleDiscoveriesAreNeitherLoadedSerializedNorWrittenByWorkers() {
+        var state=flow.start("idle","idle intent");
+        state.status="WATCHING";state.nextWatch=System.currentTimeMillis()+604800000;store.save(state);
+        clearInvocations(store);
+        for(int count=0;count<20;count++){flow.searchTick();flow.analysisTick();flow.deliveryTick();flow.watchTick();}
+        verify(store,never()).get(any());
+        verify(store,never()).save(any());
+        verifyNoInteractions(provider);
+    }
+    @Test void identicalNonterminalJobPollsDoNotPersistTheAggregate() {
+        var state=flow.start("poll","intent");
+        var batch=new DiscoveryState.Batch();batch.job=UUID.randomUUID();batch.status="RUNNING";
+        batch.request=new Task("BUSINESS",state.query,List.of(),List.of(),List.of(),List.of());
+        state.batches.add(batch);store.save(state);
+        jobs.put(batch.job,new TaskView(batch.job,"BUSINESS","RUNNING",null,0,0,null,null));
+        clearInvocations(store);
+        flow.analysisTick();flow.analysisTick();
+        verify(store,never()).save(any());
+    }
+    @Test void archivalRetryUsesTheSameFrozenEvidenceEvenAfterLiveStateChanges() {
+        var state=flow.start("archive-freeze","intent");
+        state.listings.put("1",new Listing("1","11","Original evidence","Full original description",List.of(),
+            new BigDecimal("3.0000"),"USD",0,0,0));
+        var first=store.freezeArchive(state,()->flow.snapshot(state));
+        state.listings.clear();
+        var retry=store.freezeArchive(state,()->{throw new AssertionError("Frozen evidence must not be rebuilt");});
+        assertEquals(JSON.writeValueAsString(first),JSON.writeValueAsString(retry));
+        assertEquals(1,((Map<?,?>)retry.get("listings")).size());
     }
 }

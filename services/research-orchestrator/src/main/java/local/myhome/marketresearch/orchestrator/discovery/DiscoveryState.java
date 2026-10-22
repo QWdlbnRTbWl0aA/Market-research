@@ -13,7 +13,8 @@ public class DiscoveryState {
     public long nextWatch;
     public long nextSearchAttempt;
     public int iteration=1;
-    public int stableAnalyses;
+    public int analysisBatchSize=500, pageLimit=20;
+    public int stableAnalyses; // Legacy serialized field; never used for global exhaustion.
     public List<Query> queries=new ArrayList<>();
     public Map<String,Listing> listings=new LinkedHashMap<>();
     public Set<String> processed=new LinkedHashSet<>(),families=new LinkedHashSet<>();
@@ -23,6 +24,9 @@ public class DiscoveryState {
     public List<Handoff> handoffs=new ArrayList<>();
     public Map<String,Map<String,Object>> shops=new LinkedHashMap<>();
     public Map<String,Long> shopChecked=new LinkedHashMap<>();
+    public Map<String,List<Map<String,Object>>> reviews=new LinkedHashMap<>();
+    public Set<String> reviewedListings=new LinkedHashSet<>();
+    public Map<String,Opportunity> opportunities=new LinkedHashMap<>();
     public boolean archived,notified;
     public boolean reassessmentPending;
     public String finishedAt;
@@ -40,6 +44,8 @@ public class DiscoveryState {
         public Map<String,Object> baseline=new LinkedHashMap<>(),latest=new LinkedHashMap<>();
         public List<String> families=new ArrayList<>();
         public String workerStatus;
+        public Set<String> listingIds=new LinkedHashSet<>();
+        public int stableAnalyses;
         public long nextAttemptAt;
         public Query() {}
         Query(String text,Query parent) {
@@ -51,6 +57,8 @@ public class DiscoveryState {
     }
     public static class Batch {
         public String key;
+        public String branch;
+        public List<String> sampledShops=new ArrayList<>();
         public UUID job;
         public List<String> ids=new ArrayList<>();
         public Task request;

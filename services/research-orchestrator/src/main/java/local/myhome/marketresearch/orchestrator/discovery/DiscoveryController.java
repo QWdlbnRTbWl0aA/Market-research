@@ -31,7 +31,9 @@ public class DiscoveryController {
             "usablePerReturned",q.usableYield(),"parentUsablePerReturned",q.parentYield,
             "yieldImproved",q.usableYield()>q.parentYield,"novelListings",q.novel,
             "stopReason",Objects.requireNonNullElse(q.stopReason,""))).toList());
-        m.put("analysisJobs",s.batches);m.put("productJobs",s.handoffs.stream().map(h->Map.of("key",h.key,"status",h.status,"job",Objects.toString(h.job,""))).toList());
+        m.put("analysisJobs",s.batches.stream().map(batch->Map.of("job",Objects.toString(batch.job,""),"status",batch.status,
+            "branch",Objects.toString(batch.branch,""),"listings",batch.ids.size(),"nextAttemptAt",batch.nextAttemptAt)).toList());
+        m.put("productJobs",s.handoffs.stream().map(h->Map.of("key",h.key,"status",h.status,"job",Objects.toString(h.job,""))).toList());
         m.put("changes",s.changes);m.put("nextWatchEpochMillis",s.nextWatch);m.put("iteration",s.iteration);
         return m;
     }
