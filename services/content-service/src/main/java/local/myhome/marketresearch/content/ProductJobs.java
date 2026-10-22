@@ -25,6 +25,16 @@ public class ProductJobs {
         from the proposed price. Be proportionate about manual involvement; unknown effort is an assumption.
         Make reasonable low-cost production choices explicit as assumptions; put genuinely unresolved questions
         in unresolvedQuestions. No generic placeholders, no instruction to consult an analyst for each listing.
+        Preserve the buying purpose, audience and use case, but independently choose exact contents, quantities,
+        formats and dimensions. Recommendation deliverables are a hypothesis, not a binding manufacturing spec.
+        Copy recommendation audience and useCase verbatim as stable intent anchors. Explain why the actual
+        specification fulfills that intent; do not substitute a different product category or buyer.
+        Provide per-file verifiable criteria: COUNT with expected equal to pagesOrItems, DIMENSIONS with
+        expected equal to dimensions, plus concrete content/legibility/originality checks with executable or
+        specifically described inspection methods. Cross-check totals, file formats, extensions and dimensions.
+        intentPreserved must reflect an actual comparison with the recommendation, not automatic agreement.
+        readiness is READY only with no unresolved questions and a coherent, actionable specification;
+        otherwise REQUIRES_REVIEW. Do not invent proof of actual production QA (no product has been generated).
         Return JSON with exactly these fields:
         {"product":"specific product","audience":"buyer","useCase":"use",
         "files":[{"filename":"name.pdf","format":"PDF","dimensions":"A4, 210 x 297 mm",
@@ -34,7 +44,11 @@ public class ProductJobs {
         "listingIds":["supplied ID"],"referenceUse":"inspiration only, do not reproduce",
         "commercialContext":"proposed price, comparable facts, seasonality and experiment economics",
         "acceptanceChecks":["specific pass/fail checks"],"assumptions":["explicit choices"],
-        "unresolvedQuestions":[]}.
+        "unresolvedQuestions":[],"criteria":[{"file":"name.pdf","check":"COUNT","expected":"6",
+        "method":"Read the exported PDF page count"},{"file":"name.pdf","check":"DIMENSIONS",
+        "expected":"A4, 210 x 297 mm","method":"Read every PDF page MediaBox"}],
+        "intentPreserved":true,"intentRationale":"How these independently chosen contents fulfill the buying purpose",
+        "readiness":"READY"}.
         """;
     private final JdbcTemplate db; private final ObjectMapper json; private final ProviderAccess provider;
     @org.springframework.beans.factory.annotation.Autowired
@@ -42,6 +56,8 @@ public class ProductJobs {
         this.db=db;this.json=json;this.provider=provider;
         db.execute("CREATE TABLE IF NOT EXISTS product_definition_jobs(id VARCHAR(36) PRIMARY KEY, idem VARCHAR(200) UNIQUE, payload CLOB, status VARCHAR(30), phase VARCHAR(30), draft CLOB, result CLOB, error VARCHAR(80))");
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS next_attempt BIGINT DEFAULT 0");
+        db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS call_inputs CLOB");
+        db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS usage_json CLOB");
         db.update("UPDATE product_definition_jobs SET status='BLOCKED',error='INTERRUPTED_PROVIDER_OPERATION' WHERE status='RUNNING'");
     }
     public synchronized View submit(String key,Request request) {
@@ -78,8 +94,13 @@ public class ProductJobs {
             var request=json.readValue(stored(row.get("PAYLOAD")),Request.class);
             boolean review="REVIEW".equals(row.get("PHASE"));
             Object evidence=review?Map.of("request",request,"draft",json.readValue(stored(row.get("DRAFT")),Brief.class)):request;
-            var result=json.convertValue(provider.reason(review?"product-definition-review":"product-definition",
-                PROMPT+(review?"\nCritically review this draft. Correct omissions, contradictions, unsupported claims and unsafe reference reuse. Return the same Brief schema.":""),evidence),Brief.class);
+            String stage=review?"product-definition-review":"product-definition";
+            String instructions=PROMPT+(review?"\nIndependently compare this draft to the recommendation's buying purpose. Correct contradictions and omissions; changing counts/specifications is allowed when intent is preserved. Verify every per-file criterion and preserve genuine unresolved issues. Return the same Brief schema.":"");
+            recordInput(id,stage,instructions,evidence);
+            Map<String,Object> answer;
+            try {answer=provider.reason(stage,instructions,evidence);}
+            finally {recordUsage(id);}
+            var result=json.convertValue(answer,Brief.class);
             validate(result,request);
             if(review)db.update("UPDATE product_definition_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(result),id);
             else db.update("UPDATE product_definition_jobs SET draft=?,phase='REVIEW',status='ACCEPTED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(result),id);
@@ -99,10 +120,49 @@ public class ProductJobs {
             &&b.listingIds()!=null&&!b.listingIds().isEmpty()&&ids.containsAll(b.listingIds())&&text(b.referenceUse())
             &&text(b.commercialContext())&&b.acceptanceChecks()!=null&&!b.acceptanceChecks().isEmpty()
             &&b.assumptions()!=null&&b.unresolvedQuestions()!=null,"Incomplete or ungrounded brief");
+        require(Boolean.TRUE.equals(b.intentPreserved())&&text(b.intentRationale()),"Business intent was not preserved");
+        require(normalize(b.audience()).equals(normalize(request.recommendation().audience()))
+            &&normalize(b.useCase()).equals(normalize(request.recommendation().useCase())),"Buyer/use-case intent changed");
+        require(b.readiness()!=null&&Set.of("READY","REQUIRES_REVIEW").contains(b.readiness())
+            &&(!"READY".equals(b.readiness())||b.unresolvedQuestions().isEmpty()),"Unresolved brief cannot be ready");
+        require(b.criteria()!=null&&!b.criteria().isEmpty(),"Verifiable per-file criteria required");
         var filenames=new HashSet<String>();
-        for(var f:b.files())require(f!=null&&text(f.filename())&&!f.filename().contains("/")&&!f.filename().contains("\\")
+        for(var f:b.files()) {
+            require(f!=null&&text(f.filename())&&!f.filename().contains("/")&&!f.filename().contains("\\")
             &&!f.filename().contains("..")&&filenames.add(f.filename())&&text(f.format())&&text(f.dimensions())
             &&f.pagesOrItems()>0&&text(f.contents()),"Invalid deliverable");
+            require(f.filename().toLowerCase(Locale.ROOT).endsWith("."+f.format().toLowerCase(Locale.ROOT)),"File extension disagrees with format");
+            require(b.criteria().stream().anyMatch(c->f.filename().equals(c.file())&&"COUNT".equals(c.check())
+                &&Integer.toString(f.pagesOrItems()).equals(c.expected())&&text(c.method())),"Count criterion disagrees with specification");
+            require(b.criteria().stream().anyMatch(c->f.filename().equals(c.file())&&"DIMENSIONS".equals(c.check())
+                &&f.dimensions().equals(c.expected())&&text(c.method())),"Dimension criterion disagrees with specification");
+        }
+        for(var criterion:b.criteria())require(criterion!=null&&filenames.contains(criterion.file())&&text(criterion.check())
+            &&text(criterion.expected())&&text(criterion.method()),"Acceptance criterion references an unknown file");
+    }
+    private static String normalize(String value){return value==null?"":value.strip().toLowerCase(Locale.ROOT).replaceAll("\\s+"," ");}
+    private void recordInput(String id,String stage,String instructions,Object evidence) {
+        String previous=db.queryForObject("SELECT call_inputs FROM product_definition_jobs WHERE id=?",String.class,id);
+        Map<String,Object> calls=previous==null?new LinkedHashMap<>():json.readValue(previous,Map.class);
+        calls.put(stage,Map.of("instructions",instructions,"evidence",evidence,"protocol","product-definition-v2"));
+        db.update("UPDATE product_definition_jobs SET call_inputs=? WHERE id=?",json.writeValueAsString(calls),id);
+    }
+    private void recordUsage(String id) {
+        if(provider.lastUsage()==null)return;
+        String previous=db.queryForObject("SELECT usage_json FROM product_definition_jobs WHERE id=?",String.class,id);
+        List<Object> usage=previous==null?new ArrayList<>():json.readValue(previous,List.class);
+        usage.add(provider.lastUsage());db.update("UPDATE product_definition_jobs SET usage_json=? WHERE id=?",json.writeValueAsString(usage),id);
+    }
+    public Map<String,Object> evidence(UUID id) {
+        var result=get(id);
+        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json FROM product_definition_jobs WHERE id=?",id.toString());
+        var evidence=new LinkedHashMap<String,Object>();
+        evidence.put("request",json.readValue(stored(row.get("PAYLOAD")),Request.class));
+        evidence.put("result",result);
+        evidence.put("calls",row.get("CALL_INPUTS")==null?Map.of():json.readValue(stored(row.get("CALL_INPUTS")),Map.class));
+        evidence.put("draft",row.get("DRAFT")==null?null:json.readValue(stored(row.get("DRAFT")),Map.class));
+        evidence.put("usage",row.get("USAGE_JSON")==null?List.of():json.readValue(stored(row.get("USAGE_JSON")),List.class));
+        return evidence;
     }
     static boolean text(String s){return s!=null&&!s.isBlank();}
     static String stored(Object value) {

@@ -25,6 +25,11 @@ final class DiscoveryPrompts {
         Perform business analysis of the supplied NEW or meaningfully changed cohort in the context of earlier
         cohort summaries. Infer reusable product groups, then propose at most five SPECIFIC producible experiments.
         Do not propose one recommendation per listing or research projects. Avoid repeating earlier recommendations.
+        Use knownOpportunities to resolve semantic identity even when titles, wording or references differ.
+        Classify each product as NEW, MEANINGFUL_VARIANT (materially different buyer need/format/offer), or
+        ADDITIONAL_EVIDENCE (same opportunity with more evidence or cosmetic changes). For the latter two supply
+        the exact existingOpportunityId; NEW must use null. Explain the commercial distinction in changeReason.
+        Prefer additional evidence over speculative duplicate variants. Do not create new IDs yourself.
         Each product must define actual contents/counts and buyer/use case; no generic niche recommendation.
         Estimate proposed price separately from observed prices. Modest receipts are an unverified hypothesis.
         Include automation and QA/manual effort assumptions, season-aligned experiment stop/iterate rules.
@@ -34,7 +39,8 @@ final class DiscoveryPrompts {
         "differentiation":"original angle","proposedPriceUsd":3.5,"recurringRevenueHypothesis":"scenario, not forecast",
         "automationPlan":"steps","manualWorkAssumptions":"unknowns/time","seasonality":"timing",
         "listingIds":["actual supplied ID"],"counterevidence":["limitations"],"confidence":"LOW",
-        "confidenceExplanation":"evidence vs hypothesis","experiment":"measurements, season-aligned stop/iterate rule"}],
+        "confidenceExplanation":"evidence vs hypothesis","experiment":"measurements, season-aligned stop/iterate rule",
+        "relationship":"NEW","existingOpportunityId":null,"changeReason":"Why this is a distinct opportunity"}],
         "limitations":["unknowns"],"newInsights":true,"marginalValueReason":"New product hypothesis or reason to stop"}.
         confidence is LOW, MEDIUM or HIGH. Empty products is valid. Set newInsights=false when the cohort only
         repeats known families, problems and product hypotheses. Do not invent variants just to claim novelty.
@@ -46,6 +52,8 @@ final class DiscoveryPrompts {
         demand proven sales before inexpensive experiments. Return the SAME assessment JSON schema as the draft,
         with revised products, summary, families, limitations, newInsights and marginalValueReason.
         Critique the novelty claim too: more IDs or trivial variations alone are not new insight.
+        Resolve duplicate opportunities against the current cohort.knownOpportunities catalog. Changing titles,
+        prices, citations or phrasing alone must not create another product brief. Preserve meaningful variants.
         Do not claim this review proves demand.
         """;
 }

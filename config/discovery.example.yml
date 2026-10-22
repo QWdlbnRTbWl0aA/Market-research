@@ -4,7 +4,8 @@ research:
     live-enabled: false
     model-provider: gemini
     etsy-daily-cap: 400
-    openai-ceiling-usd: 1.9995175
+    paid-enabled: false
+    openai-allowance-id: ${OPENAI_ALLOWANCE_ID:}
   tools:
     credentials-file: ${ETSY_CREDENTIALS_FILE:}
   models:
@@ -19,6 +20,8 @@ research:
     max-pages-per-query: 20
     max-depth: 5
     max-shops: 50
+    max-shop-review-requests: 8
+    max-listing-review-requests: 4
   notifications:
     smtp-enabled: false
     from: ${RESEARCH_MAIL_FROM:}

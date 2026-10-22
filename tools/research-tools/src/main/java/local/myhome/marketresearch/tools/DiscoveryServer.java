@@ -25,10 +25,12 @@ final class DiscoveryServer {
                     config.put("market-research.services."+service+"-base-url","http://127.0.0.1:"+ports.get(
                         service.equals("archive")?"research-archive-service":service+"-service"));
                 for(String setting:List.of("research.runtime.live-enabled","research.runtime.model-provider","research.runtime.openai-ceiling-usd",
+                        "research.runtime.paid-enabled","research.runtime.openai-allowance-id",
                         "research.runtime.etsy-daily-cap","research.models.gemini-credentials-file","research.models.open-ai-credentials-file",
                         "research.models.gemini-free-confirmed","research.models.gemini-model","research.models.open-ai-model",
                         "research.tools.credentials-file","research.discovery.batch-size","research.discovery.max-queries",
-                        "research.discovery.max-pages-per-query","research.discovery.max-depth","research.discovery.max-shops")) {
+                        "research.discovery.max-pages-per-query","research.discovery.max-depth","research.discovery.max-shops",
+                        "research.discovery.max-shop-review-requests","research.discovery.max-listing-review-requests")) {
                     String value=env.getProperty(setting);if(value!=null)config.put(setting,value);
                 }
                 // SMTP values should be supplied via inherited environment or a private Spring config file, never CLI secrets.

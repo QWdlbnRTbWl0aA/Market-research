@@ -53,4 +53,27 @@ class ProductJobsTest {
         var job=jobs.submit("wait",request());jobs.tick();assertEquals("ACCEPTED",jobs.get(job.id()).status());
         jobs.tick();jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
     }
+    @Test void definitionCanChooseDifferentQuantitiesWhileKeepingBusinessIntent() {
+        var base=brief("activity.pdf",List.of("1"));
+        var independent=new Brief(base.product(),base.audience(),base.useCase(),
+            List.of(new FileSpec("activity.pdf","PDF","A4",8,"Eight independently designed activity sheets")),
+            base.visual(),base.listingIds(),base.referenceUse(),base.commercialContext(),base.acceptanceChecks(),base.assumptions(),List.of());
+        assertDoesNotThrow(()->ProductJobs.validate(independent,request()));
+        assertEquals(8,independent.files().getFirst().pagesOrItems());
+    }
+    @Test void coherentCountsDimensionsAndBusinessIntentAreRequiredNotJustPresentFields() {
+        var base=brief("activity.pdf",List.of("1"));
+        var wrongBuyer=new Brief(base.product(),"Different buyers","Unrelated need",base.files(),base.visual(),
+            base.listingIds(),base.referenceUse(),base.commercialContext(),base.acceptanceChecks(),base.assumptions(),List.of());
+        assertThrows(ResponseStatusException.class,()->ProductJobs.validate(wrongBuyer,request()));
+        var contradictory=new Brief(base.product(),base.audience(),base.useCase(),base.files(),base.visual(),base.listingIds(),
+            base.referenceUse(),base.commercialContext(),base.acceptanceChecks(),base.assumptions(),List.of(),
+            List.of(new Criterion("activity.pdf","COUNT","99","Inspect PDF"),new Criterion("activity.pdf","DIMENSIONS","Wrong size","Inspect PDF")),
+            true,"Same buying purpose","READY");
+        assertThrows(ResponseStatusException.class,()->ProductJobs.validate(contradictory,request()));
+        var unresolved=new Brief(base.product(),base.audience(),base.useCase(),base.files(),base.visual(),base.listingIds(),
+            base.referenceUse(),base.commercialContext(),base.acceptanceChecks(),base.assumptions(),List.of("Critical unverified language"),
+            base.criteria(),true,"Same purpose","READY");
+        assertThrows(ResponseStatusException.class,()->ProductJobs.validate(unresolved,request()));
+    }
 }

@@ -11,6 +11,13 @@ import tools.jackson.databind.ObjectMapper;
 final class ResearchModels {
     private final RestClient openai,gemini;
     private final ModelSettings settings; private final ObjectMapper json; private final Path root;
+    private Map<String,Object> usage=Map.of("tokenUsageKnown",false);
+    private String selectedAllowance;
+    private boolean paidEnabled=true, requireNamedAllowance;
+    ResearchModels scoped(String allowanceId,boolean enabled) {
+        selectedAllowance=allowanceId;paidEnabled=enabled;requireNamedAllowance=true;return this;
+    }
+    Map<String,Object> usage(){return usage;}
     ResearchModels(RestClient openai,RestClient gemini,ModelSettings settings,ObjectMapper json,Path root) {
         this.openai=openai;this.gemini=gemini;this.settings=settings;this.json=json;this.root=root;
     }
@@ -21,6 +28,11 @@ final class ResearchModels {
     @SuppressWarnings("unchecked")
     Map<String,Object> askOn(String provider,String purpose,String instructions,Object evidence,
             java.math.BigDecimal ceiling,int inputLimit) throws Exception {
+        return askOn(provider,purpose,instructions,evidence,ceiling,inputLimit,null);
+    }
+    @SuppressWarnings("unchecked")
+    Map<String,Object> askOn(String provider,String purpose,String instructions,Object evidence,
+            java.math.BigDecimal ceiling,int inputLimit,String allowanceId) throws Exception {
         if(!Set.of("auto","gemini","openai").contains(provider))throw new ToolFailure("Unknown model provider.");
         Path preflight=root.resolve("data/provider-ledgers/model-preflight.json");
         if(!Files.exists(preflight)) throw new ToolFailure("Run provider-check before model generation.");
@@ -49,12 +61,20 @@ final class ResearchModels {
         }
         if(!Objects.equals(200,checked.get("openAiMetadataHttp")) || !"gpt-5.4-mini".equals(settings.openAiModel()))
             throw new ToolFailure("Configured OpenAI model/pricing has not been verified.");
+        if(!paidEnabled)throw new ToolFailure("Paid model calls are disabled");
+        String activeAllowance=allowanceId==null?selectedAllowance:allowanceId;
+        if(requireNamedAllowance&&(activeAllowance==null||activeAllowance.isBlank()))
+            throw new ToolFailure("Select an explicitly authorized named OpenAI allowance");
         Map<String,Object> body=Map.of("model",settings.openAiModel(),"messages",List.of(
             Map.of("role","user","content",prompt)),"reasoning_effort","low",
             "response_format",Map.of("type","json_object"),"max_completion_tokens",8000,"store",false);
         byte[] serialized=json.writeValueAsBytes(body);
         String key=SecretFiles.get(settings.openAiCredentialsFile(),"OPENAI_API_KEY");
-        var paid=new ModelBudget(root.resolve("data/provider-ledgers"),json,ceiling,inputLimit).openai(purpose,serialized.length,8000,()-> {
+        var budget=activeAllowance==null?new ModelBudget(root.resolve("data/provider-ledgers"),json,ceiling,inputLimit):
+            new ModelBudget(root.resolve("data/provider-ledgers"),json,inputLimit,activeAllowance);
+        var paid=budget.openai(purpose,serialized.length,8000,()-> {
+            this.usage=Map.of("provider","openai","model",settings.openAiModel(),"requestSent",true,"tokenUsageKnown",false,
+                "reservedUsd",ModelBudget.cost(serialized.length+4096,8000),"costBasis","Reservation retained until reported usage can be settled");
             Map<String,Object> response=openai.post().uri("/chat/completions").header("Authorization","Bearer "+key)
                 .contentType(MediaType.APPLICATION_JSON).body(body).exchange((req,res)-> {
                     if(!res.getStatusCode().is2xxSuccessful()) throw new ToolFailure("OpenAI returned HTTP "+res.getStatusCode().value()+"; no retry.");
@@ -66,6 +86,11 @@ final class ResearchModels {
             var message=(Map<String,Object>)choices.getFirst().get("message");
             var usage=(Map<String,Object>)response.get("usage");
             if(usage==null) throw new ToolFailure("OpenAI usage absent; budget reservation retained.");
+            long input=((Number)usage.get("prompt_tokens")).longValue(),output=((Number)usage.get("completion_tokens")).longValue();
+            long cached=usage.get("prompt_tokens_details") instanceof Map<?,?> details&&details.get("cached_tokens") instanceof Number n?n.longValue():0;
+            this.usage=Map.of("provider","openai","model",settings.openAiModel(),"inputTokens",input,"outputTokens",output,
+                "cachedInputTokens",cached,"requestSent",true,"tokenUsageKnown",true,"estimatedUsd",ModelBudget.cost(input,output),
+                "costBasis","Conservative standard list-price estimate, not invoice; no cached-input discount assumed");
             // Settle reported usage even when the assistant's returned JSON is malformed.
             return new ModelBudget.Outcome(Map.of("answer",String.valueOf(message.getOrDefault("content","")),
                 "refused",message.get("refusal")!=null),((Number)usage.get("prompt_tokens")).longValue(),
@@ -108,6 +133,8 @@ final class ResearchModels {
         PrivateJson.write(statePath,state,json);
         var body=Map.of("contents",List.of(Map.of("parts",List.of(Map.of("text",prompt)))),
             "generationConfig",Map.of("responseMimeType","application/json","maxOutputTokens",8000));
+        this.usage=Map.of("provider","gemini","model",settings.geminiModel(),"requestSent",true,"tokenUsageKnown",false,
+            "estimatedUsd",0,"costBasis","Operator-confirmed free tier; token usage not yet reported");
         return gemini.post().uri("/models/"+settings.geminiModel()+":generateContent")
             .header("x-goog-api-key",SecretFiles.get(settings.geminiCredentialsFile(),"GEMINI_LLM_API_KEY"))
             .contentType(MediaType.APPLICATION_JSON).body(body).exchange((req,res)-> {
@@ -145,6 +172,15 @@ final class ResearchModels {
                 var candidateContent=(Map<String,Object>)candidates.getFirst().get("content");
                 var parts=(List<Map<String,Object>>)candidateContent.get("parts");
                 state.put("usageMetadata",response.getOrDefault("usageMetadata",Map.of()));
+                if(response.get("usageMetadata") instanceof Map<?,?> reported&&reported.get("promptTokenCount") instanceof Number input) {
+                    long output=reported.get("totalTokenCount") instanceof Number total?Math.max(0,total.longValue()-input.longValue()):
+                        (reported.get("candidatesTokenCount") instanceof Number candidatesCount?candidatesCount.longValue():0)
+                        +(reported.get("thoughtsTokenCount") instanceof Number thoughts?thoughts.longValue():0);
+                    long cached=reported.get("cachedContentTokenCount") instanceof Number n?n.longValue():0;
+                    this.usage=Map.of("provider","gemini","model",settings.geminiModel(),"inputTokens",input.longValue(),
+                        "outputTokens",output,"cachedInputTokens",cached,"requestSent",true,"tokenUsageKnown",true,"estimatedUsd",0,
+                        "costBasis","Operator-confirmed free tier, not invoice");
+                }
                 List<Map<String,Object>> events=new ArrayList<>((List<Map<String,Object>>)state.getOrDefault("events",List.of()));
                 events.add(Map.of("purpose",purpose,"at",Instant.now().toString(),"model",settings.geminiModel(),
                     "usageMetadata",response.getOrDefault("usageMetadata",Map.of())));
