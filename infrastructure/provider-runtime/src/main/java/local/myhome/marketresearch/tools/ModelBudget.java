@@ -26,7 +26,7 @@ final class ModelBudget {
         PrivateJson.directory(directory);
         try(var channel=FileChannel.open(directory.resolve("openai-stage.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
                 var lock=channel.tryLock()) {
-            if(lock==null) throw new ToolFailure("Another model operation holds the spending lock.");
+            if(lock==null) throw new ProviderBusy();
             Path file=directory.resolve("openai-stage.json");
             Map<String,Object> state=Files.exists(file)?json.readValue(Files.readString(file),Map.class):new LinkedHashMap<>();
             BigDecimal committed=new BigDecimal(state.getOrDefault("committedUsd",0).toString());
@@ -49,7 +49,7 @@ final class ModelBudget {
             state.put("committedUsd",committed.add(actual));
             PrivateJson.write(file,state,json);
             return result.value();
-        } catch(OverlappingFileLockException e){throw new ToolFailure("Another model operation holds the spending lock.");}
+        } catch(OverlappingFileLockException e){throw new ProviderBusy();}
     }
     static BigDecimal cost(long input,long output) {
         return BigDecimal.valueOf(input).multiply(new BigDecimal("0.75"))

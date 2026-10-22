@@ -9,6 +9,7 @@ spring:
   application:
     name: analysis-service
 server:
+  address: 127.0.0.1
   port: ${ANALYSIS_PORT:8082}
 market-research:
   providers:

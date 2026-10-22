@@ -16,6 +16,7 @@
     <name>Market Research</name>
     <modules>
         <module>contracts</module>
+        <module>infrastructure/provider-runtime</module>
         <module>services/research-orchestrator</module>
         <module>services/analysis-service</module>
         <module>services/content-service</module>

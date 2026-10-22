@@ -11,6 +11,7 @@
     </parent>
     <artifactId>research-tools</artifactId>
     <dependencies>
+        <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>provider-runtime</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>analysis-contract</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jackson</artifactId></dependency>
@@ -19,6 +20,7 @@
         <!-- POM-only dependencies order service packaging before process acceptance tests. -->
         <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>research-orchestrator</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
         <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>analysis-service</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
+        <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>content-service</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
         <dependency><groupId>local.myhome.marketresearch</groupId><artifactId>research-archive-service</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
     </dependencies>
     <build><plugins>

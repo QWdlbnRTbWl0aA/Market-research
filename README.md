@@ -4,17 +4,19 @@ A local system for researching Etsy digital-product opportunities. It will gathe
 
 ## Current status
 
-The Halloween playground includes durable simulated orchestration, deterministic cohort analysis, bounded live search refinement and a business-evidence analyzer. The research CLI coordinates real Etsy and budgeted text-model calls; the orchestrator's demonstration workflow still uses synthetic evidence. Image generation and publishing remain disabled.
+Continuous discovery now accepts an arbitrary broad query through a CLI, refines and re-searches, drains incremental cohort analysis, reviews concrete recommendations and hands them to an idea-to-product definition service. Completed iterations are archived and watched weekly; only the operator can approve new deep analysis after an alert. Old simulation and Halloween experiments remain separate. Image generation and publishing remain disabled.
+
+See the [operator guide and stop conditions](docs/api/continuous-discovery.md) and [configuration template](config/discovery.example.yml). SMTP delivery awaits supplied configuration; a queued notice is not a sent email.
 
 ## Planned system
 
 | Component | Ownership |
 | --- | --- |
 | Research orchestrator | Research workflow, canonical run state, retries, and dashboard API |
-| Analysis service | Initial metrics, business analysis, ranking, and product-definition jobs |
-| Content service | Listing text, visuals, mock-ups, prompts, and provider selection |
+| Analysis service | Preparation, refinement, reviewed cohort analysis and incremental cache |
+| Content service | Reviewed idea-to-product definitions now; assets/listing packages later |
 | Research archive | Business-oriented archival of evidence, reports, assets, and listing packages |
-| Dashboard | React user interface through the orchestrator |
+| Operator interface | Java CLI through the orchestrator; web dashboard deferred |
 
 All backend services are independently deployable but live in one repository. Long-running work uses asynchronous HTTP job resources; no message broker is currently planned.
 
@@ -46,7 +48,7 @@ java -jar services/research-archive-service/target/research-archive-service-0.1.
 java -jar services/research-orchestrator/target/research-orchestrator-0.1.0-SNAPSHOT.jar
 ```
 
-Default ports are 8081 (orchestrator), 8082 (analysis), 8083 (content shell), and 8084 (archive). Each participating service owns a separate H2 file under ignored `data/`. Database URLs and service base URLs are configurable through the environment. Run one instance per service.
+Default ports are 8081 (orchestrator), 8082 (analysis), 8083 (content/product definition), and 8084 (archive). Each participating service owns a separate H2 file under ignored `data/`. Database URLs and service base URLs are configurable through the environment. Run one instance per service.
 
 ```bash
 curl -i -X POST http://localhost:8081/v1/research-runs \\
@@ -83,11 +85,13 @@ java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --resear
 java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --research.tools.command=discover --research.tools.live-enabled=true --research.tools.credentials-file=/path/to/etsy.env
 ```
 
-Every fresh live command first deletes previous research outputs from the allowlisted Halloween, cohort and discovery directories. Operational quota/spending ledgers, documentation and fixtures survive. Consequently replay requires a currently saved cohort; historical run documentation is not replay input. `collect` uses one quota probe plus at most fourteen 100-result pages, a 30-attempt rolling-day cap, two-second spacing and a daily reserve. `discover` uses one probe and four `limit=1` searches under its six-attempt rolling-day cap. Both share the existing ledger and lock under `data/etsy-discovery/`; neither retries HTTP failures.
+These experimental live collection commands delete previous outputs from the allowlisted Halloween, cohort and discovery directories. They do not clean continuous-discovery databases, caches or schedules. Operational quota/spending ledgers, documentation and fixtures survive. Consequently replay requires a currently saved cohort; historical run documentation is not replay input. `collect` uses one quota probe plus at most fourteen 100-result pages, a 30-attempt rolling-day cap, two-second spacing and a daily reserve. `discover` uses one probe and four `limit=1` searches under its six-attempt rolling-day cap. Both share the existing ledger and lock under `data/etsy-discovery/`; neither retries HTTP failures.
 
 The CLI defaults to help; `--research.tools.root=.` selects the project root. The Java tooling has replaced the former scripts and their Python tests. All ordinary checks run through Maven; live collection is never part of the test lifecycle.
 
 ## Focused searches and business analysis
+
+This section describes the earlier bounded Halloween experiment. For ongoing arbitrary-query runs, use the continuous-discovery operator guide above; its databases and caches persist rather than being cleaned between runs.
 
 After building, check model access without generation, then explicitly run the bounded live investigation:
 

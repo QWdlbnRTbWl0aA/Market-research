@@ -1,0 +1,31 @@
+# Copy outside the repository. Never put credentials or actual machine details here.
+research:
+  runtime:
+    live-enabled: false
+    model-provider: gemini
+    etsy-daily-cap: 400
+    openai-ceiling-usd: 1.9995175
+  tools:
+    credentials-file: ${ETSY_CREDENTIALS_FILE:}
+  models:
+    gemini-credentials-file: ${GEMINI_CREDENTIALS_FILE:}
+    open-ai-credentials-file: ${OPENAI_CREDENTIALS_FILE:}
+    gemini-free-confirmed: false
+    gemini-model: gemini-3.5-flash-lite
+    open-ai-model: gpt-5.4-mini
+  discovery:
+    batch-size: 500
+    max-queries: 24
+    max-pages-per-query: 20
+    max-depth: 5
+    max-shops: 50
+  notifications:
+    smtp-enabled: false
+    from: ${RESEARCH_MAIL_FROM:}
+    to: ${RESEARCH_MAIL_TO:}
+spring:
+  mail:
+    host: ${RESEARCH_SMTP_HOST:}
+    port: 587
+    username: ${RESEARCH_SMTP_USERNAME:}
+    password: ${RESEARCH_SMTP_PASSWORD:}

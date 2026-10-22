@@ -1,4 +1,8 @@
 spring:
+  task:
+    scheduling:
+      pool:
+        size: 4
   datasource:
     url: ${ORCHESTRATOR_DB_URL:jdbc:h2:file:./data/orchestrator;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0}
     username: sa
@@ -9,6 +13,7 @@ spring:
   application:
     name: research-orchestrator
 server:
+  address: 127.0.0.1
   port: ${ORCHESTRATOR_PORT:8081}
 market-research:
   providers:

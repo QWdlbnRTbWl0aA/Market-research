@@ -25,12 +25,12 @@ public final class QuotaLedger {
         PrivateJson.directory(directory);
         try (var channel = FileChannel.open(directory.resolve("budget.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
             try (var lock = channel.tryLock()) {
-                if (lock == null) throw new ToolFailure("Another research collector holds the quota lock.");
+                if (lock == null) throw new ProviderBusy();
                 var budget = new Budget(cap);
                 budget.requireCapacity(required);
                 return work.run(budget);
             } catch (OverlappingFileLockException e) {
-                throw new ToolFailure("Another research collector holds the quota lock.");
+                throw new ProviderBusy();
             }
         }
     }
@@ -64,9 +64,9 @@ public final class QuotaLedger {
         public Map<String,String> quota() { return Map.copyOf(quota); }
         public void requireCapacity(int required) {
             prune();
-            if (required < 1 || calls.size()+required > cap)
-                throw new ToolFailure("Insufficient local rolling-day request budget; no request sent.");
-            if (blockedUntil > now()) throw new ToolFailure("Provider cooldown is active; no request sent.");
+            if (required < 1 || required>cap)throw new ToolFailure("Invalid request reservation");
+            if(calls.size()+required>cap)throw new ProviderDeferred((long)((Collections.min(calls)+86401)*1000));
+            if (blockedUntil > now()) throw new ProviderDeferred((long)(blockedUntil*1000));
         }
         public void reserve(boolean probe) throws Exception {
             requireCapacity(1);

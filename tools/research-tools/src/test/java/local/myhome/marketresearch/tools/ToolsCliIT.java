@@ -31,10 +31,36 @@ class ToolsCliIT {
         Path root = Path.of(System.getProperty("project.root")), output = directory.resolve("cli.log");
         var help = start(root,output);
         assertTrue(help.waitFor(25,TimeUnit.SECONDS)); assertEquals(0,help.exitValue());
-        assertTrue(Files.readString(output).contains("Commands: replay"));
+        assertTrue(Files.readString(output).contains("Commands: search-start"));
+        assertTrue(Files.readString(output).contains("replay/forecast"));
         var blocked = start(root,output,"--research.tools.command=collect","--research.tools.root="+directory);
         assertTrue(blocked.waitFor(25,TimeUnit.SECONDS)); assertEquals(1,blocked.exitValue());
         assertFalse(Files.exists(directory.resolve("data/etsy-discovery/budget.json")));
+    }
+    @Test void supervisorStartsAllServicesAndCliControlsDurableDiscovery() throws Exception {
+        Path root=Path.of(System.getProperty("project.root")),temporary=directory.resolve("supervised");
+        Files.createDirectories(temporary);Files.createSymbolicLink(temporary.resolve("services"),root.resolve("services"));
+        int orchestrator=ServiceProcess.freePort(),analysis=ServiceProcess.freePort(),content=ServiceProcess.freePort(),archive=ServiceProcess.freePort();
+        var process=start(root,directory.resolve("serve.log"),"--research.tools.command=serve","--research.tools.root="+temporary,
+            "--research.runtime.port.orchestrator="+orchestrator,"--research.runtime.port.analysis="+analysis,
+            "--research.runtime.port.content="+content,"--research.runtime.port.archive="+archive);
+        try {
+            var client=org.springframework.web.client.RestClient.create("http://127.0.0.1:"+orchestrator);
+            long deadline=System.nanoTime()+java.time.Duration.ofSeconds(40).toNanos();boolean ready=false;
+            while(System.nanoTime()<deadline&&process.isAlive()) {
+                try {client.get().uri("/v1/discoveries").retrieve().toBodilessEntity();ready=true;break;}
+                catch(Exception e){Thread.sleep(100);}
+            }
+            assertTrue(ready,"Local supervisor did not become ready");
+            var started=client.post().uri("/v1/discoveries").header("Idempotency-Key","supervisor-run")
+                .body(Map.of("query","TEST_FIXTURE broad query")).retrieve().body(Map.class);
+            var cli=start(root,directory.resolve("operator.log"),"--research.tools.command=search-status",
+                "--research.discovery.id="+started.get("id"),"--research.discovery.url=http://127.0.0.1:"+orchestrator);
+            assertTrue(cli.waitFor(15,TimeUnit.SECONDS));assertEquals(0,cli.exitValue());
+            var operator=new ObjectMapper().readTree(Files.readString(directory.resolve("operator.log")));
+            assertEquals("test_fixture broad query",operator.get("result").get("query").asString());
+            assertFalse(Files.exists(temporary.resolve("data/etsy-discovery/budget.json")),"Disabled providers must send no requests");
+        }finally{process.destroy();assertTrue(process.waitFor(20,TimeUnit.SECONDS));}
     }
     @Test void replaysThousandSyntheticListingsThroughPackagedAnalysisService() throws Exception {
         Path root = Path.of(System.getProperty("project.root"));

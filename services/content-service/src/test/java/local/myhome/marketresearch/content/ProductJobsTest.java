@@ -1,0 +1,56 @@
+package local.myhome.marketresearch.content;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import java.math.BigDecimal;
+import java.util.*;
+import org.junit.jupiter.api.*;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.ObjectMapper;
+import local.myhome.marketresearch.contracts.analysis.Discovery.*;
+import local.myhome.marketresearch.contracts.content.ProductDefinition.*;
+import local.myhome.marketresearch.tools.*;
+
+class ProductJobsTest {
+    ObjectMapper json=new ObjectMapper();JdbcTemplate db;ProviderAccess provider;ProductJobs jobs;
+    @BeforeEach void setup() {
+        db=new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";DB_CLOSE_DELAY=-1","sa",""));
+        provider=mock(ProviderAccess.class);jobs=new ProductJobs(db,json,provider);
+    }
+    Request request() {
+        var p=new Product("Holiday classroom activity pack","Teachers","Stations",List.of("4 PDF sheets"),"Original designs",BigDecimal.valueOf(3),
+            "Unverified scenario","Template exports","Unknown QA effort","Season aligned",List.of("1"),List.of("No listing revenue"),"LOW","Proxy evidence","Season aligned test");
+        return new Request(UUID.randomUUID(),"Jewish printables",p,List.of(new Listing("1","11","Activity pack","Description",List.of(),BigDecimal.ONE,"USD",1,1,1)));
+    }
+    Brief brief(String filename,List<String> ids) {
+        return new Brief("Four holiday classroom activities","Teachers","Stations",
+            List.of(new FileSpec(filename,"PDF","A4 210x297 mm",4,"One activity on each page; four original activity types")),
+            new VisualSpec("Original flat illustration",List.of("#334455"),"Licensed readable font","Generous print margins",List.of("No copied art")),
+            ids,"Inspiration only; no reproduction","Proposed USD 3, not observed revenue",List.of("Verify all page dimensions"),List.of("Template-based export"),List.of());
+    }
+    @Test void definesReviewsAndPreservesTheContractWithoutGeneratingAssets() throws Exception {
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(brief("activity.pdf",List.of("1")),Map.class));
+        var request=request();var job=jobs.submit("product",request);assertEquals(job.id(),jobs.submit("product",request).id());
+        jobs.tick();assertEquals("ACCEPTED",jobs.get(job.id()).status());jobs.tick();
+        assertEquals("SUCCEEDED",jobs.get(job.id()).status());assertEquals(4,jobs.get(job.id()).brief().files().getFirst().pagesOrItems());
+        verify(provider,times(2)).reason(anyString(),anyString(),any());
+        assertThrows(ResponseStatusException.class,()->jobs.submit("product",request()));
+    }
+    @Test void inventedReferencesAndUnsafeFilenamesAreRejectedWithoutRetry() throws Exception {
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(brief("../activity.pdf",List.of("1")),Map.class));
+        var job=jobs.submit("bad",request());jobs.tick();assertEquals("BLOCKED",jobs.get(job.id()).status());jobs.tick();
+        verify(provider,times(1)).reason(anyString(),anyString(),any());
+        assertThrows(ResponseStatusException.class,()->ProductJobs.validate(brief("activity.pdf",List.of("9")),request()));
+    }
+    @Test void pendingCancellationAndInterruptedCallRecoveryDoNotSendCalls() {
+        var a=jobs.submit("cancel",request());jobs.cancel(a.id());jobs.tick();assertEquals("CANCELLED",jobs.get(a.id()).status());
+        var b=jobs.submit("crash",request());db.update("UPDATE product_definition_jobs SET status='RUNNING' WHERE id=?",b.id().toString());
+        var recovered=new ProductJobs(db,json,provider);recovered.tick();assertEquals("BLOCKED",recovered.get(b.id()).status());verifyNoInteractions(provider);
+    }
+    @Test void localContentionWaitsWithoutFailingTheJob() throws Exception {
+        when(provider.reason(anyString(),anyString(),any())).thenThrow(new ProviderBusy()).thenReturn(json.convertValue(brief("activity.pdf",List.of("1")),Map.class));
+        var job=jobs.submit("wait",request());jobs.tick();assertEquals("ACCEPTED",jobs.get(job.id()).status());
+        jobs.tick();jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
+    }
+}
