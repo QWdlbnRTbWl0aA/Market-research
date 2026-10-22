@@ -34,7 +34,7 @@ public class DiscoveryFlow {
     private final DiscoveryAnalysis business;
     private final DiscoveryDelivery delivery;
     private final DiscoveryMonitoring monitoring;
-    private final int batchSize, pageLimit;
+    private final int batchSize, pageLimit, samplingPageBudget;
     private final ConcurrentHashMap<UUID,ReentrantLock> locks = new ConcurrentHashMap<>();
 
     public DiscoveryFlow(DiscoveryStore store, DiscoveryNotices notices, ObjectMapper json, Environment settings, ProviderAccess provider) {
@@ -45,6 +45,8 @@ public class DiscoveryFlow {
         var archive = client(settings.getProperty("market-research.services.archive-base-url", "http://127.0.0.1:8084"));
         batchSize = settings.getProperty("research.discovery.batch-size", Integer.class, 500);
         pageLimit = settings.getProperty("research.discovery.max-pages-per-query", Integer.class, 20);
+        samplingPageBudget = settings.getProperty("research.discovery.sampling-page-budget", Integer.class, 0);
+        if (samplingPageBudget < 0) throw new IllegalArgumentException("Invalid sampling budget");
         if (batchSize < 1 || batchSize > 1000) throw new IllegalArgumentException("Invalid cohort size");
         search = new DiscoverySearch(store, provider, analysis, settings);
         business = new DiscoveryAnalysis(provider, analysis, json, settings);
@@ -68,9 +70,10 @@ public class DiscoveryFlow {
 
     public DiscoveryState start(String key, String query) {
         var state = store.create(key, query);
-        if (state.analysisBatchSize != batchSize || state.pageLimit != pageLimit) {
+        if (state.analysisBatchSize != batchSize || state.pageLimit != pageLimit || state.samplingPageBudget != samplingPageBudget) {
             state.analysisBatchSize = batchSize;
             state.pageLimit = pageLimit;
+            state.samplingPageBudget = samplingPageBudget;
             store.save(state);
         }
         return state;
@@ -154,6 +157,23 @@ public class DiscoveryFlow {
             }
             state.status = "CANCELLATION_REQUESTED";
             state.error = null;
+        });
+    }
+    public void reviewBriefs(UUID id,String key) {
+        if (key==null||key.isBlank()||key.length()>100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        mutate(id, state -> {
+            if (state.archived || !Set.of("ACTIVE","BLOCKED").contains(state.status))
+                throw new ResponseStatusException(HttpStatus.CONFLICT,"Review before immutable archival");
+            for (var handoff : state.handoffs) {
+                if (handoff.job==null) continue;
+                var job=content.get().uri("/v1/product-definition-jobs/"+handoff.job).retrieve()
+                    .body(local.myhome.marketresearch.contracts.content.ProductDefinition.View.class);
+                if (!"SUCCEEDED".equals(job.status())) continue;
+                content.post().uri("/v1/product-definition-jobs/"+handoff.job+"/review")
+                    .header("Idempotency-Key",key+":"+handoff.job).retrieve().toBodilessEntity();
+                handoff.status="DEFINING";
+                handoff.brief=null;
+            }
         });
     }
     public void resume(UUID id) {

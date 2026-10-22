@@ -14,6 +14,8 @@ public class DiscoveryState {
     public long nextSearchAttempt;
     public int iteration=1;
     public int analysisBatchSize=500, pageLimit=20;
+    public int samplingPageBudget; // Zero means unbounded; a sampled finish is never natural exhaustion.
+    public boolean searchComplete() { return Set.of("EXHAUSTED", "SAMPLING_COMPLETE").contains(searchStatus); }
     public int stableAnalyses; // Legacy serialized field; never used for global exhaustion.
     public List<Query> queries=new ArrayList<>();
     public Map<String,Listing> listings=new LinkedHashMap<>();

@@ -30,6 +30,7 @@ final class DiscoveryServer {
                         "research.models.gemini-free-confirmed","research.models.gemini-model","research.models.open-ai-model",
                         "research.tools.credentials-file","research.discovery.batch-size","research.discovery.max-queries",
                         "research.discovery.max-pages-per-query","research.discovery.max-depth","research.discovery.max-shops",
+                        "research.discovery.sampling-page-budget",
                         "research.discovery.max-shop-review-requests","research.discovery.max-listing-review-requests")) {
                     String value=env.getProperty(setting);if(value!=null)config.put(setting,value);
                 }

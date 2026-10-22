@@ -25,9 +25,25 @@ final class DiscoverySearch {
 
     boolean advance(DiscoveryState state) throws Exception {
         if (!"ACTIVE".equals(state.status) || !"ACTIVE".equals(state.searchStatus)) return false;
+        if (samplingBudgetReached(state)) {
+            // Finish already-submitted model work, but do not buy another refinement at the sample boundary.
+            var refining = state.queries.stream().filter(branch -> "REFINING".equals(branch.status)
+                && branch.refinementJob != null).findFirst();
+            if (refining.isPresent()) {
+                if (refining.get().nextAttemptAt > System.currentTimeMillis()) return false;
+                return refine(state, refining.get());
+            }
+            for (var branch : state.queries) if (!"DONE".equals(branch.status)) {
+                branch.status = "DEFERRED";
+                branch.stopReason = "SAMPLING_PAGE_BUDGET";
+            }
+            state.searchStatus = "SAMPLING_COMPLETE";
+            return true;
+        }
         var pending = state.queries.stream().filter(branch -> !"DONE".equals(branch.status))
             .filter(branch -> branch.nextAttemptAt<=System.currentTimeMillis()||!"REFINING".equals(branch.status))
-            .sorted(Comparator.comparingInt(branch -> branch.pages >= maxPages ? 1 : 0)).findFirst();
+            .sorted(Comparator.comparingInt((DiscoveryState.Query branch) -> branch.pages >= maxPages ? 1 : 0)
+                .thenComparingInt(branch -> branch.pages).thenComparingInt(branch -> branch.depth)).findFirst();
         if (pending.isEmpty()) {
             if(state.queries.stream().anyMatch(branch->!"DONE".equals(branch.status)))return false;
             state.searchStatus = "EXHAUSTED";
@@ -155,5 +171,10 @@ final class DiscoverySearch {
     private void finish(DiscoveryState.Query branch, String reason) {
         branch.status = "DONE";
         branch.stopReason = reason;
+    }
+
+    private static boolean samplingBudgetReached(DiscoveryState state) {
+        return state.samplingPageBudget > 0
+            && state.queries.stream().mapToInt(branch -> branch.pages).sum() >= state.samplingPageBudget;
     }
 }

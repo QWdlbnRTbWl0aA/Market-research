@@ -18,6 +18,7 @@ research:
     batch-size: 500
     max-queries: 24
     max-pages-per-query: 20
+    sampling-page-budget: 0 # Optional bounded investigation; 0 disables, not natural exhaustion.
     max-depth: 5
     max-shops: 50
     max-shop-review-requests: 8
