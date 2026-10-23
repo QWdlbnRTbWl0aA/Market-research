@@ -1,0 +1,8 @@
+research:
+  discovery:
+    workers-enabled: false
+  runtime:
+    live-enabled: false
+    paid-enabled: false
+  notifications:
+    smtp-enabled: false

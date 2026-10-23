@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Product briefs · Market Research</title>
+  <link rel="stylesheet" href="/briefs.css">
+  <script src="/briefs.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><div><p class="eyebrow">MARKET RESEARCH / LIBRARY</p><h1>Product briefs</h1><p>From an opportunity to a clear production plan.</p></div><span class="read-only">Read-only viewer</span></header>
+  <main>
+    <section class="toolbar" aria-label="Brief controls">
+      <div class="run-control"><label for="run">Investigation</label><select id="run" disabled><option>Loading investigations…</option></select><p id="run-meta" class="muted"></p></div>
+      <button id="refresh" type="button">Refresh</button>
+      <a id="download-all" class="button" hidden>Download all · JSON</a>
+    </section>
+    <p id="status" role="status" aria-live="polite">Loading saved briefs…</p>
+    <div class="workspace">
+      <aside aria-label="Saved briefs">
+        <div class="filters"><label for="search">Find a brief</label><input id="search" type="search" placeholder="Title or audience"><label for="readiness">Readiness</label><select id="readiness"><option value="">All briefs</option><option value="READY">Ready specification</option><option value="REQUIRES_REVIEW">Requires review</option></select></div>
+        <p id="count" class="muted"></p><div id="brief-list"></div>
+      </aside>
+      <article id="detail" aria-label="Brief details" aria-busy="false"><div class="placeholder"><h2>Your production plans, in one place.</h2><p>Select a completed brief to inspect its contents, references and review warnings.</p></div></article>
+    </div>
+  </main>
+  <footer>Specifications, not generated products. “Ready” is an AI assessment—not independent QA or evidence of sales. Viewing and downloading do not invoke providers.</footer>
+</body>
+</html>

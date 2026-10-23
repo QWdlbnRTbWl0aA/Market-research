@@ -15,7 +15,8 @@ public class DiscoveryNotices {
     public DiscoveryNotices(JdbcTemplate db,Environment env) {
         this.db=db;this.env=env;
         db.execute("CREATE TABLE IF NOT EXISTS discovery_notices(id VARCHAR(200) PRIMARY KEY, subject VARCHAR(200), body CLOB, status VARCHAR(40))");
-        db.update("UPDATE discovery_notices SET status='DELIVERY_UNCERTAIN' WHERE status='SENDING'");
+        if (env.getProperty("research.discovery.workers-enabled",Boolean.class,true))
+            db.update("UPDATE discovery_notices SET status='DELIVERY_UNCERTAIN' WHERE status='SENDING'");
     }
     public synchronized void queue(String key,String subject,String body) {
         if(db.queryForList("SELECT id FROM discovery_notices WHERE id=?",key).isEmpty())
@@ -25,6 +26,7 @@ public class DiscoveryNotices {
     public void retry(String key) {db.update("UPDATE discovery_notices SET status='PENDING' WHERE id=? AND status IN ('DELIVERY_UNCERTAIN','WAITING_CONFIGURATION')",key);}
     @Scheduled(fixedDelayString="${research.notifications.delay-ms:10000}")
     public void tick() {
+        if (!env.getProperty("research.discovery.workers-enabled",Boolean.class,true)) return;
         if(!env.getProperty("research.notifications.smtp-enabled",Boolean.class,false)) {
             db.update("UPDATE discovery_notices SET status='WAITING_CONFIGURATION' WHERE status='PENDING'");return;
         }
