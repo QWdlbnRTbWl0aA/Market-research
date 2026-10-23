@@ -35,11 +35,13 @@ public class DiscoveryFlow {
     private final DiscoveryDelivery delivery;
     private final DiscoveryMonitoring monitoring;
     private final int batchSize, pageLimit, samplingPageBudget;
+    private final boolean workersEnabled;
     private final ConcurrentHashMap<UUID,ReentrantLock> locks = new ConcurrentHashMap<>();
 
     public DiscoveryFlow(DiscoveryStore store, DiscoveryNotices notices, ObjectMapper json, Environment settings, ProviderAccess provider) {
         this.store = store;
         this.notices = notices;
+        workersEnabled = settings.getProperty("research.discovery.workers-enabled",Boolean.class,true);
         analysis = client(settings.getProperty("market-research.services.analysis-base-url", "http://127.0.0.1:8082"));
         content = client(settings.getProperty("market-research.services.content-base-url", "http://127.0.0.1:8083"));
         var archive = client(settings.getProperty("market-research.services.archive-base-url", "http://127.0.0.1:8084"));
@@ -52,7 +54,7 @@ public class DiscoveryFlow {
         business = new DiscoveryAnalysis(provider, analysis, json, settings);
         delivery = new DiscoveryDelivery(store, notices, analysis, content, archive);
         monitoring = new DiscoveryMonitoring(provider, notices, json);
-        for (UUID id : store.interruptedIds()) {
+        for (UUID id : workersEnabled ? store.interruptedIds() : List.<UUID>of()) {
             var state = store.get(id);
             if (state.queries.stream().anyMatch(branch -> "FETCHING".equals(branch.status))) {
                 block(state, "INTERRUPTED_SEARCH");
@@ -91,6 +93,7 @@ public class DiscoveryFlow {
     public void watchTick() { each("WATCH", monitoring::advance); }
 
     private void each(String worker, Stage operation) {
+        if (!workersEnabled) return;
         for (UUID id : store.ready(worker)) {
             var lock = locks.computeIfAbsent(id, ignored -> new ReentrantLock());
             if (!lock.tryLock()) continue;

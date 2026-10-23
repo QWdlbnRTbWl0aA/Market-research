@@ -22,11 +22,14 @@ public class ResearchRuns {
     private final JdbcTemplate db;
     private final RestClient analysis;
     private final RestClient archive;
+    private final boolean workersEnabled;
 
     public ResearchRuns(JdbcTemplate db,
             @Value("${market-research.services.analysis-base-url}") String analysisUrl,
-            @Value("${market-research.services.archive-base-url}") String archiveUrl) {
+            @Value("${market-research.services.archive-base-url}") String archiveUrl,
+            @Value("${research.discovery.workers-enabled:true}") boolean workersEnabled) {
         this.db = db;
+        this.workersEnabled = workersEnabled;
         var factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(2));
         factory.setReadTimeout(Duration.ofSeconds(2));
@@ -89,6 +92,7 @@ public class ResearchRuns {
 
     @Scheduled(fixedDelay = 250)
     public synchronized void tick() {
+        if (!workersEnabled) return;
         long now = System.currentTimeMillis();
         for (var row : db.queryForList("""
                 SELECT id,deadline FROM research_runs WHERE status IN
