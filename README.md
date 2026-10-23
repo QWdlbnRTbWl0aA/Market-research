@@ -32,6 +32,20 @@ java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --resear
 
 Copy the configuration example outside the repository and supply credential-file paths there. Default model routing is Gemini; paid access additionally requires an explicit active allowance and paid-enabled flag. Never put keys, SMTP passwords or actual machine details in repository files or command arguments.
 
+### View and download briefs
+
+Open [the brief library](http://127.0.0.1:8081/) when the orchestrator is running. Browse saved investigations, search/filter completed briefs, inspect complete specifications and warnings, and download individual JSON/Markdown documents or all briefs as JSON. It serves local assets only and viewing/downloading invokes no providers.
+
+To run just the viewer against the existing project data, without the other services or credentials, run this from the repository root:
+
+```bash
+java -jar services/research-orchestrator/target/research-orchestrator-0.1.0-SNAPSHOT.jar --spring.profiles.active=viewer
+```
+
+The viewer profile disables discovery workers, live/paid providers and SMTP sending. The page has no mutation controls; the existing workflow API remains separate. It shows the current saved iteration's completed handoffs, not an archive-history browser. Downloads are specifications and references, not generated product assets. Stop with Ctrl-C, and do not run it alongside another orchestrator using the same database/port.
+
+Viewer HTTP/export regression tests run under Maven Failsafe. The buildless frontend also has dependency-free interaction tests: `node --test services/research-orchestrator/src/test/js/briefs.test.cjs`. These exercise rendering, filters, failures and stale-response handling with a small DOM fixture; they are not visual browser tests.
+
 ```bash
 java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --research.tools.command=search-start --research.discovery.query="Jewish printables" --research.discovery.key=investigation-1
 java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --research.tools.command=search-status --research.discovery.id=RUN_UUID

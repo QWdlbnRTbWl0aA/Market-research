@@ -77,6 +77,10 @@ SMTP remains disabled until supplied outside the repo: `spring.mail.host/port/us
 
 ## Retention, costs and tests
 
+The orchestrator also serves a read-only brief library at `/`. Its `/v1/brief-library/runs` endpoints list lightweight run/brief summaries, fetch complete saved brief documents, and download individual `json` or `markdown` documents and per-run JSON bundles. Only SUCCEEDED handoffs with a stored brief are downloadable. Documents include the full brief, original opportunity and cited listing metadata/URLs, excluding raw research aggregates and model prompts. Missing/pending/cross-run job IDs return 404; unsupported export formats return 400. No provider or worker is invoked by these read paths.
+
+For library-only operation use `--spring.profiles.active=viewer` from the project root; it disables discovery scheduling/recovery and provider access. This is not an archive-history viewer or a new authenticated/public deployment. API READY labels remain model judgments, not independent production approval.
+
 Service-owned databases retain discoveries, caches, handoffs, archives, notices and schedules across normal runs. Experimental Halloween cleanup remains separate; it does not reset databases or provider ledgers.
 
 Idle work uses indexed due projections and performs no aggregate loading/serialization/writes. Unchanged job polls do not save; known quota waits are not busy-polled. Archives contain sanitized source pages with dates/digests, complete cohort requests, shop/review context, catalog support, model instructions/context, drafts, results and usage records. A frozen archive outbox makes retries independent of later source changes.
