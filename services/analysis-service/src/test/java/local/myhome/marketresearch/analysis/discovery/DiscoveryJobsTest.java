@@ -55,6 +55,14 @@ class DiscoveryJobsTest {
         when(provider.reason(anyString(),anyString(),any())).thenReturn(report());
         jobs.resume(job.id());jobs.tick();jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
         assertEquals(3,((List<?>)jobs.evidence(job.id()).get("outputs")).size(),"Rejected output survives explicit retry");
+        var instructions=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(provider,times(2)).reason(eq("discovery-business"),instructions.capture(),any());
+        assertFalse(instructions.getAllValues().getFirst().contains("RECOVERY:"));
+        String retry=instructions.getAllValues().getLast();
+        assertTrue(retry.contains("RECOVERY:"));
+        assertTrue(retry.contains("\"unknownListingIds\":[\"9999\"]"));
+        assertTrue(retry.contains("\"allowedListingIds\":[\"1\"]"));
+        assertEquals(task(List.of(listing(1,"Printable",1))),jobs.evidence(job.id()).get("request"));
     }
     @Test void rejectedReviewRetainsItsOutputAndExplicitRetryDoesNotRepeatGeneration() throws Exception {
         var invalid=new LinkedHashMap<>(report());
@@ -70,6 +78,9 @@ class DiscoveryJobsTest {
         verify(provider,times(1)).reason(eq("discovery-business"),anyString(),any());
         verify(provider,times(2)).reason(eq("discovery-review"),anyString(),any());
         assertEquals(3,((List<?>)jobs.evidence(job.id()).get("outputs")).size());
+        var instructions=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(provider,times(2)).reason(eq("discovery-review"),instructions.capture(),any());
+        assertTrue(instructions.getAllValues().getLast().contains("RECOVERY:"));
     }
     @Test void cancellationAndCrashRecoveryAreExplicit() throws Exception {
         var task=task(List.of(listing(1,"Printable",1)));var cancelled=jobs.submit("cancel",task);
@@ -145,5 +156,23 @@ class DiscoveryJobsTest {
             "Bad identity",List.of(),List.of(product().related("ADDITIONAL_EVIDENCE","nonexistent","Not a real target")),List.of()),Map.class));
         var invalid=jobs.submit("bad-identity",task(List.of(listing(1,"Source",1))));
         jobs.tick();assertEquals("BLOCKED",jobs.get(invalid.id()).status());
+    }
+    @Test void recoveryAfterRestartReportsUnknownOpportunityWithoutRewritingEvidence() throws Exception {
+        var invalid=json.convertValue(new Assessment("Bad identity",List.of(),List.of(
+            product().related("ADDITIONAL_EVIDENCE","nonexistent","Existing buyer need")),List.of()),Map.class);
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(invalid,report(),report());
+        var request=task(List.of(listing(1,"Source",1)));
+        var job=jobs.submit("restart-validation",request);jobs.tick();
+        assertEquals("BLOCKED",jobs.get(job.id()).status());
+        var restarted=new DiscoveryJobs(db,json,provider,tx,"test-v1");
+        restarted.tick();verify(provider,times(1)).reason(anyString(),anyString(),any());
+        restarted.resume(job.id());restarted.tick();restarted.tick();
+        assertEquals("SUCCEEDED",restarted.get(job.id()).status());
+        var instructions=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(provider,times(2)).reason(eq("discovery-business"),instructions.capture(),any());
+        assertTrue(instructions.getAllValues().getLast().contains("\"invalidExistingOpportunityId\":\"nonexistent\""));
+        assertEquals(request,restarted.evidence(job.id()).get("request"));
+        assertEquals(3,((List<?>)restarted.evidence(job.id()).get("outputs")).size());
+        assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM discovery_opportunities",Integer.class));
     }
 }

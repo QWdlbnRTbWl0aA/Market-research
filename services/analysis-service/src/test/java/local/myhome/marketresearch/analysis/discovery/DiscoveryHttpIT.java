@@ -26,5 +26,22 @@ class DiscoveryHttpIT {
         assertEquals(id,http.post().uri("/v1/discovery-jobs").header("Idempotency-Key","http-task").body(task).retrieve().body(TaskView.class).id());
         var repeat=http.post().uri("/v1/discovery-jobs").header("Idempotency-Key","new-key-same-listing").body(task).retrieve().body(TaskView.class);
         jobs.tick();assertEquals(1,jobs.get(repeat.id()).cachedListings());verify(provider,times(2)).reason(anyString(),anyString(),any());
+
+        // Resume the same HTTP resource after a rejected response; retain its payload and rejected output.
+        var changed=fixture.task(List.of(fixture.listing(1,"TEST_FIXTURE changed contents",1)));
+        var invalid=new LinkedHashMap<>(fixture.report());invalid.put("newInsights",null);
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(invalid,fixture.report(),fixture.report());
+        var recovering=http.post().uri("/v1/discovery-jobs").header("Idempotency-Key","http-recovery")
+            .body(changed).retrieve().body(TaskView.class);
+        jobs.tick();assertEquals("BLOCKED",jobs.get(recovering.id()).status());
+        http.post().uri("/v1/discovery-jobs/"+recovering.id()+"/resume").retrieve().toBodilessEntity();
+        jobs.tick();jobs.tick();
+        assertEquals("SUCCEEDED",jobs.get(recovering.id()).status());
+        assertEquals(recovering.id(),http.post().uri("/v1/discovery-jobs").header("Idempotency-Key","http-recovery")
+            .body(changed).retrieve().body(TaskView.class).id());
+        var evidence=http.get().uri("/v1/discovery-jobs/"+recovering.id()+"/evidence").retrieve().body(Map.class);
+        assertEquals(3,((List<?>)evidence.get("outputs")).size());
+        var calls=(Map<?,?>)evidence.get("calls");
+        assertTrue(((Map<?,?>)calls.get("discovery-business")).get("instructions").toString().contains("RECOVERY:"));
     }
 }

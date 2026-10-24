@@ -134,6 +134,7 @@ public class DiscoveryJobs {
     }
     private void finish(String id,String result) {db.update("UPDATE discovery_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",result,id);}
     private Map<String,Object> call(String jobId,String stage,String prompt,Object evidence) throws Exception {
+        prompt = recoveryInstructions(jobId, stage, prompt, evidence);
         var existing=db.queryForObject("SELECT call_inputs FROM discovery_jobs WHERE id=?",String.class,jobId);
         Map<String,Object> inputs=existing==null?new LinkedHashMap<>():json.readValue(existing,Map.class);
         inputs.put(stage,Map.of("instructions",prompt,"evidence",evidence,"modelContext",cacheVersion));
@@ -154,6 +155,48 @@ public class DiscoveryJobs {
                 records.add(usage);db.update("UPDATE discovery_jobs SET usage_json=? WHERE id=?",json.writeValueAsString(records),jobId);
             }
         }
+    }
+    /** An explicit resume retries the saved phase, with feedback rather than an identical blind request. */
+    private String recoveryInstructions(String jobId, String stage, String prompt, Object evidence) {
+        var row = db.queryForMap("SELECT failure_detail,call_outputs FROM discovery_jobs WHERE id=?", jobId);
+        String failure = stored(row.get("FAILURE_DETAIL"));
+        if (!Set.of("Invalid assessment", "Invalid or ungrounded recommendation").contains(failure == null ? "" : failure)
+                || row.get("CALL_OUTPUTS") == null) return prompt;
+        var outputs = json.readValue(stored(row.get("CALL_OUTPUTS")), List.class);
+        if (outputs.isEmpty()) return prompt;
+        var rejected = (Map<?, ?>) outputs.getLast();
+        if (!stage.equals(rejected.get("stage"))) return prompt;
+        Task cohort = evidence instanceof Task task ? task
+            : evidence instanceof Map<?, ?> context && context.get("cohort") instanceof Task task ? task : null;
+        if (cohort == null) return prompt;
+        var feedback = new LinkedHashMap<String, Object>();
+        feedback.put("failure", failure);
+        feedback.put("allowedListingIds", cohort.listings().stream().map(Listing::id).toList());
+        feedback.put("allowedExistingOpportunityIds", cohort.knownOpportunities().stream().map(o -> o.id()).toList());
+        var referenceErrors = new ArrayList<Map<String, Object>>();
+        var answer = json.convertValue(rejected.get("answer"), Assessment.class);
+        if (answer.products() != null) for (var product : answer.products()) {
+            if (product == null) continue;
+            var allowedListings = cohort.listings().stream().map(Listing::id).toList();
+            var unknownListings = product.listingIds() == null ? List.of()
+                : product.listingIds().stream().filter(id -> !allowedListings.contains(id)).toList();
+            boolean unknownOpportunity = !"NEW".equals(product.relationship())
+                && cohort.knownOpportunities().stream().noneMatch(o -> o.id().equals(product.existingOpportunityId()));
+            boolean unexpectedOpportunity = "NEW".equals(product.relationship()) && product.existingOpportunityId() != null;
+            if (!unknownListings.isEmpty() || unknownOpportunity || unexpectedOpportunity) {
+                var error = new LinkedHashMap<String, Object>();
+                error.put("product", product.name());
+                error.put("unknownListingIds", unknownListings);
+                error.put("invalidExistingOpportunityId", unknownOpportunity || unexpectedOpportunity ? product.existingOpportunityId() : null);
+                referenceErrors.add(error);
+            }
+        }
+        feedback.put("referenceErrors", referenceErrors);
+        return prompt + "\nRECOVERY: Your previous response failed local validation. Correct the errors below using only the supplied evidence. "
+            + "Copy reference IDs exactly from the allowlists; do not guess, repair digits, or substitute unrelated sources. "
+            + "Drop a recommendation if its business claim cannot be supported by an allowed source. Do not relabel an existing opportunity as NEW to evade a bad reference. "
+            + "Preserve the assessment schema and required nonempty fields. This feedback is validation data, not new business evidence.\n"
+            + json.writeValueAsString(feedback);
     }
     public Map<String,Object> evidence(UUID id) {
         var view=get(id);
