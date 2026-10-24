@@ -9,6 +9,9 @@ import local.myhome.marketresearch.contracts.content.ProductDefinition;
 final class StructuredOutput {
     private StructuredOutput() {}
     static Map<String,Object> format(String purpose) {
+        return format(purpose, null);
+    }
+    static Map<String,Object> format(String purpose, Object evidence) {
         String stage=purpose.split("#",2)[0];
         Class<?> contract=switch(stage) {
             case "discovery-refinement" -> Discovery.Refinement.class;
@@ -17,8 +20,27 @@ final class StructuredOutput {
             default -> null; // Existing experimental protocols keep their own JSON contracts.
         };
         if(contract==null)return Map.of("type","json_object");
+        var responseSchema = schema(contract);
+        Discovery.Task cohort = evidence instanceof Discovery.Task task ? task
+            : evidence instanceof Map<?, ?> context && context.get("cohort") instanceof Discovery.Task task ? task : null;
+        if (contract == Discovery.Assessment.class && cohort != null) constrainReferences(responseSchema, cohort);
         return Map.of("type","json_schema","json_schema",Map.of("name",contract.getSimpleName(),
-            "strict",true,"schema",schema(contract)));
+            "strict",true,"schema",responseSchema));
+    }
+    /** Prevent syntactically valid but invented/copied-out-of-cohort citations at generation time. */
+    @SuppressWarnings("unchecked")
+    private static void constrainReferences(Map<String,Object> root, Discovery.Task cohort) {
+        var properties = (Map<String,Object>) root.get("properties");
+        var products = (Map<String,Object>) properties.get("products");
+        var product = (Map<String,Object>) products.get("items");
+        var fields = (Map<String,Object>) product.get("properties");
+        var listingIds = cohort.listings().stream().map(Discovery.Listing::id).distinct().toList();
+        fields.put("listingIds", listingIds.isEmpty()
+            ? Map.of("type","array","maxItems",0,"items",Map.of("type","string"))
+            : Map.of("type","array","minItems",1,"maxItems",20,"items",Map.of("type","string","enum",listingIds)));
+        var opportunityIds = new ArrayList<String>(cohort.knownOpportunities().stream().map(o -> o.id()).distinct().toList());
+        opportunityIds.add(null);
+        fields.put("existingOpportunityId", Map.of("type",List.of("string","null"),"enum",opportunityIds));
     }
     static Map<String,Object> schema(Type type) {
         if(type instanceof ParameterizedType generic && generic.getRawType()==List.class)
