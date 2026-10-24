@@ -116,6 +116,11 @@ After the accepted frontier drains, `BOUNDED_COMPLETE` distinguishes limited cov
 exhaustion and allows downstream completion and archival. Provider failures and page safety limits remain
 separate visible stops; this does not increase any provider spending or request allowance.
 
+An Etsy search-quota wait does not delay business cohorts that already have sufficient saved evidence.
+Only a cohort that actually needs a new shop/review request inherits the Etsy retry time. That wait is
+persisted on the cohort; idle workers do not poll or write it. Scheduler projections migrate once on
+upgrade without changing source data, processed IDs, business conclusions or provider ledgers.
+
 ## Fresh-investigation boundary
 
 The requested reset cleared fetched evidence, research results, business conclusions and semantic caches without resetting historical spending/rate ledgers or conversation context. Tracked historical business-report documents were removed from the current tree; Git history was not rewritten. Previous results are not priors for the next investigation.

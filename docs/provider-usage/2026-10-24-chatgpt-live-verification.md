@@ -21,3 +21,25 @@ plan usage. The initial adapter failed to extract an answer after completion; no
 the paid allowance was unchanged and the draft remained pending. The streaming adapter is being corrected
 to retain finalized message/text events while still requiring confirmed whole-response completion. Final
 messages and stream event types are now privately retained for audit; incomplete output is never accepted.
+
+After the streaming correction and full Maven verification, the same saved review succeeded on
+`gpt-6.1-sol`: 66,894 input tokens and 2,751 output tokens. Finalized message events supplied the answer
+and the whole-response completion was confirmed. Two ChatGPT requests have therefore been made in this
+bounded verification, including the unsuccessful initial extraction. Neither used paid API fallback.
+
+Agent review of the pipeline result: the model removed duplicate recommendations, distinguished same-shop
+evidence from independent sellers, treated sales/revenue as unknown, and retained two specific low-confidence
+experiments. One concerns an adjacent religious audience and is explicitly labeled accordingly, rather than
+being presented as a Jewish product. This is a quality check, not independent demand validation.
+
+Parent resume initially failed against a process whose packaged application had been rebuilt in place.
+Restarting from an immutable runtime artifact restored resume. Domain services now run private versioned
+copies, so future Maven builds do not alter their live classpaths. Database backups and saved-job snapshots
+were retained. The parent consumed the successful review and both new product briefs completed, increasing
+this run from 16 to 18 briefs and from 1,189 to 1,289 analyzed listings. Product definition used its existing
+API route: four calls, USD 0.05961675 incremental commitment; API cumulative commitment is USD 3.81626475.
+
+A scheduling check then found that the global Etsy retry pointer also delayed creation of cohorts that
+needed no new Etsy calls. The orchestrator now defers only actual missing-evidence requests. Regression tests
+cover saved evidence flowing through briefs during a search quota wait, genuinely missing evidence idling
+without calls or writes, and migration of old scheduler projections while preserving the full saved state.
