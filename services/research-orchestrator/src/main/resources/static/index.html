@@ -6,10 +6,24 @@
   <title>Product briefs · Market Research</title>
   <link rel="stylesheet" href="/briefs.css">
   <script src="/briefs.js" defer></script>
+  <script src="/model-connection.js" defer></script>
 </head>
 <body>
-  <header class="topbar"><div><p class="eyebrow">MARKET RESEARCH / LIBRARY</p><h1>Product briefs</h1><p>From an opportunity to a clear production plan.</p></div><span class="read-only">Read-only viewer</span></header>
+  <header class="topbar"><div><p class="eyebrow">MARKET RESEARCH / LIBRARY</p><h1>Product briefs</h1><p>From an opportunity to a clear production plan.</p></div><span class="read-only">Saved brief library</span></header>
   <main>
+    <details class="connection-panel"><summary>AI connection · ChatGPT first, API fallback</summary>
+      <p id="connection-status" role="status" aria-live="polite">Loading connection…</p>
+      <p>Connect your ChatGPT account and approve use of its plan. ChatGPT plan limits and credits apply. API fallback uses only the existing approved allowance.</p>
+      <p>Signing in and listing models do not start analysis. Your saved research stays in place.</p>
+      <p>If your browser is on another device, keep this port forward running there before signing in. Replace the destination with the SSH connection you normally use:</p>
+      <pre id="connection-forward">ssh -N -L 1456:127.0.0.1:1456 &lt;your-SSH-destination&gt;</pre>
+      <button id="connection-sign-in" type="button">Continue with ChatGPT</button>
+      <a id="connection-authorize" target="_blank" rel="noopener noreferrer" hidden>Open ChatGPT sign-in</a>
+      <button id="connection-models" type="button" disabled>Load available models</button>
+      <label for="connection-model">Analysis model</label><select id="connection-model" disabled><option>Connect first</option></select>
+      <button id="connection-save-model" type="button" disabled>Use selected model</button>
+      <a href="https://chatgpt.com/#settings" target="_blank" rel="noopener noreferrer">Manage ChatGPT app access and usage</a>
+    </details>
     <section class="toolbar" aria-label="Brief controls">
       <div class="run-control"><label for="run">Investigation</label><select id="run" disabled><option>Loading investigations…</option></select><p id="run-meta" class="muted"></p></div>
       <button id="refresh" type="button">Refresh</button>

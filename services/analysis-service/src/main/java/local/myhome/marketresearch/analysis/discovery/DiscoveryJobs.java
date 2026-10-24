@@ -27,7 +27,7 @@ public class DiscoveryJobs {
     private final OpportunityCatalog opportunities;
     @org.springframework.beans.factory.annotation.Autowired
     public DiscoveryJobs(JdbcTemplate db,ObjectMapper json,Environment env,PlatformTransactionManager manager,ProviderAccess provider) {
-        this(db,json,provider,manager,Discovery.VERSION+":"+env.getProperty("research.runtime.model-provider","gemini")
+        this(db,json,provider,manager,Discovery.VERSION+":"+env.getProperty("research.runtime.analysis-model-provider","chatgpt")
             +":"+env.getProperty("research.models.gemini-model","gemini-3.5-flash-lite")
             +":"+env.getProperty("research.models.open-ai-model","gpt-5.4-mini"));
     }
