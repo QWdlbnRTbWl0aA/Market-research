@@ -30,7 +30,6 @@ final class DiscoveryAnalysis {
     boolean advance(DiscoveryState state) throws Exception {
         var pending = state.batches.stream().filter(batch -> !"SUCCEEDED".equals(batch.status)).findFirst();
         if (pending.isPresent()) return advanceBatch(state, pending.get());
-        if (state.nextSearchAttempt > System.currentTimeMillis()) return false;
         for (var branch : state.queries) {
             var ids = DiscoveryReadiness.pending(state, branch);
             if (ids.size() < state.analysisBatchSize) continue;
@@ -73,8 +72,8 @@ final class DiscoveryAnalysis {
     }
 
     private boolean advanceBatch(DiscoveryState state, DiscoveryState.Batch batch) throws Exception {
+        if (batch.nextAttemptAt > System.currentTimeMillis()) return false;
         if (batch.request == null) {
-            if (state.nextSearchAttempt > System.currentTimeMillis()) return false;
             if (enrich(state, batch)) return true;
             var summaries = new ArrayList<>(state.assessments.stream().skip(Math.max(0, state.assessments.size() - 12))
                 .map(report -> report.summary() + " Products: " + report.products().stream().map(Product::name).toList()).toList());
@@ -84,6 +83,7 @@ final class DiscoveryAnalysis {
             batch.request = new Task(reassess ? "REASSESS" : "BUSINESS", state.query,
                 batch.ids.stream().map(state.listings::get).toList(), new ArrayList<>(state.shops.values()),
                 List.copyOf(state.families), summaries, batch.branch, reviews, List.copyOf(state.opportunities.values()));
+            batch.nextAttemptAt = 0;
             return true; // Freeze the input before the idempotent HTTP side effect.
         }
         if (batch.job == null) {
@@ -138,6 +138,7 @@ final class DiscoveryAnalysis {
         for (String shop : batch.sampledShops) {
             boolean stale = state.shopChecked.getOrDefault(shop, 0L) < System.currentTimeMillis() - Duration.ofDays(7).toMillis();
             if (stale && (state.shops.containsKey(shop) || state.shops.size() < maxShops)) {
+                if (deferEvidenceFetch(state, batch)) return true;
                 var raw = provider.shop(shop);
                 var facts = new LinkedHashMap<String,Object>();
                 for (String field : List.of("shop_id","created_timestamp","transaction_sold_count","review_count",
@@ -155,6 +156,7 @@ final class DiscoveryAnalysis {
             String key = "shop:" + shop;
             long used = state.reviews.keySet().stream().filter(value -> value.startsWith("shop:")).count();
             if (used < shopReviewBudget && !state.reviews.containsKey(key)) {
+                if (deferEvidenceFetch(state, batch)) return true;
                 state.reviews.put(key, EvidenceSampler.reviews(provider.shopReviews(shop), key));
                 return true;
             }
@@ -165,6 +167,7 @@ final class DiscoveryAnalysis {
             if (!listings.isEmpty()) {
                 String id = listings.getFirst().id();
                 if (!state.reviewedListings.contains(id)) {
+                    if (deferEvidenceFetch(state, batch)) return true;
                     state.reviews.put("listing:" + id, EvidenceSampler.reviews(provider.listingReviews(id), "listing:" + id));
                     state.reviewedListings.add(id);
                     return true;
@@ -172,5 +175,10 @@ final class DiscoveryAnalysis {
             }
         }
         return false;
+    }
+    private boolean deferEvidenceFetch(DiscoveryState state, DiscoveryState.Batch batch) {
+        if (state.nextSearchAttempt <= System.currentTimeMillis()) return false;
+        batch.nextAttemptAt = state.nextSearchAttempt;
+        return true;
     }
 }

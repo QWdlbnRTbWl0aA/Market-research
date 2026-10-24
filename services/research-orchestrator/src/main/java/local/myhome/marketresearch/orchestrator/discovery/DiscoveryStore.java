@@ -21,7 +21,7 @@ public class DiscoveryStore {
         }
         db.execute("CREATE TABLE IF NOT EXISTS discovery_source_pages(run_id VARCHAR(36), iteration INT, source_key VARCHAR(100), evidence CLOB, PRIMARY KEY(run_id,iteration,source_key))");
         db.execute("CREATE TABLE IF NOT EXISTS discovery_archive_outbox(run_id VARCHAR(36), iteration INT, payload CLOB, PRIMARY KEY(run_id,iteration))");
-        for(String id:db.queryForList("SELECT id FROM discoveries WHERE projection_version<2",String.class))
+        for(String id:db.queryForList("SELECT id FROM discoveries WHERE projection_version<3",String.class))
             save(get(UUID.fromString(id))); // Migrate once, never deserialize idle aggregates on later startups.
     }
     public synchronized DiscoveryState create(String key,String query) {
@@ -45,7 +45,7 @@ public class DiscoveryStore {
         return json.readValue(rows.getFirst(),DiscoveryState.class);
     }
     public void save(DiscoveryState state){
-        db.update("UPDATE discoveries SET state=?,SEARCH_due=?,ANALYSIS_due=?,DELIVERY_due=?,WATCH_due=?,projection_version=2,interrupted=? WHERE id=?",
+        db.update("UPDATE discoveries SET state=?,SEARCH_due=?,ANALYSIS_due=?,DELIVERY_due=?,WATCH_due=?,projection_version=3,interrupted=? WHERE id=?",
             json.writeValueAsString(state),DiscoveryReadiness.next(state,"SEARCH"),DiscoveryReadiness.next(state,"ANALYSIS"),
             DiscoveryReadiness.next(state,"DELIVERY"),DiscoveryReadiness.next(state,"WATCH"),
             state.queries.stream().anyMatch(branch->"FETCHING".equals(branch.status)),state.id.toString());

@@ -203,6 +203,42 @@ class DiscoveryFlowIT {
         assertTrue(flow.get(run.id).nextSearchAttempt>System.currentTimeMillis());
         verify(provider,times(1)).search(anyString(),anyInt(),anyInt());
     }
+    @Test void savedEvidenceCanBeAnalyzedAndDefinedWhileSearchWaitsOnEtsy() {
+        var run=flow.start("independent-evidence","Jewish printables");
+        run.nextSearchAttempt=System.currentTimeMillis()+3600000;run.queries.getFirst().refined=true;
+        for(int id=1;id<=200;id++){var source=SearchPolicy.listing(row(id,true));run.listings.put(source.id(),source);run.queries.getFirst().listingIds.add(source.id());}
+        for(String shop:List.of("11","12")){run.shops.put(shop,Map.of("shop_id",Integer.parseInt(shop),"transaction_sold_count",100));run.shopChecked.put(shop,System.currentTimeMillis());}
+        store.save(run);
+        for(int count=0;count<8;count++){flow.analysisTick();flow.deliveryTick();}
+        var progressed=flow.get(run.id);
+        assertEquals(200,progressed.processed.size());assertEquals("SUCCEEDED",progressed.batches.getFirst().status);
+        assertEquals("SUCCEEDED",progressed.handoffs.getFirst().status);assertNotNull(progressed.handoffs.getFirst().brief);
+        assertEquals(run.nextSearchAttempt,progressed.nextSearchAttempt,"The Etsy retry pointer must not be cleared to unlock analysis");
+        assertEquals("ACTIVE",progressed.searchStatus);assertEquals(0,progressed.queries.getFirst().pages);
+        verifyNoInteractions(provider);assertEquals(1,analysisPosts.get());assertTrue(archived.isEmpty());
+    }
+    @Test void aCohortThatNeedsNewEvidenceWaitsWithoutPollingOrSendingEtsyCalls() {
+        var run=flow.start("missing-evidence","Jewish printables");run.nextSearchAttempt=System.currentTimeMillis()+3600000;
+        for(int id=1;id<=200;id++){var source=SearchPolicy.listing(row(id,true));run.listings.put(source.id(),source);run.queries.getFirst().listingIds.add(source.id());}
+        store.save(run);flow.analysisTick();flow.analysisTick();
+        var waiting=flow.get(run.id);assertEquals(run.nextSearchAttempt,waiting.batches.getFirst().nextAttemptAt);
+        assertNull(waiting.batches.getFirst().request);assertTrue(waiting.shops.isEmpty());
+        clearInvocations(store);
+        for(int index=0;index<10;index++)flow.analysisTick();
+        verify(store,never()).get(any());verify(store,never()).save(any());verifyNoInteractions(provider);
+        assertEquals(0,analysisPosts.get());assertTrue(waiting.processed.isEmpty());
+    }
+    @Test void quotaIndependenceProjectionMigrationPreservesStateAndMakesExistingDataRunnable() {
+        var run=flow.start("old-quota-projection","Jewish printables");run.nextSearchAttempt=System.currentTimeMillis()+3600000;
+        for(int id=1;id<=200;id++){var source=SearchPolicy.listing(row(id,true));run.listings.put(source.id(),source);run.queries.getFirst().listingIds.add(source.id());}
+        store.save(run);String expected=JSON.writeValueAsString(store.get(run.id));
+        db.update("UPDATE discoveries SET projection_version=2,ANALYSIS_due=? WHERE id=?",run.nextSearchAttempt,run.id.toString());
+        var migrated=new DiscoveryStore(db,JSON);
+        assertTrue(migrated.ready("ANALYSIS").contains(run.id));assertFalse(migrated.ready("SEARCH").contains(run.id));
+        assertEquals(expected,JSON.writeValueAsString(migrated.get(run.id)),"Only scheduling projections change");
+        assertEquals(3,db.queryForObject("SELECT projection_version FROM discoveries WHERE id=?",Integer.class,run.id.toString()));
+        var secondRestart=new DiscoveryStore(db,JSON);assertEquals(expected,JSON.writeValueAsString(secondRestart.get(run.id)));
+    }
     @Test void interruptedSearchIsBlockedOnRestartAndCancellationRemainsAvailable() {
         var run=flow.start("crash","Jewish printables");run.queries.getFirst().status="FETCHING";store.save(run);
         var env=new org.springframework.mock.env.MockEnvironment();
