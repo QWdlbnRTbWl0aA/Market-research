@@ -55,6 +55,12 @@ java -jar tools/research-tools/target/research-tools-0.1.0-SNAPSHOT.jar --resear
 
 SMTP delivery remains disabled until configured. Notices wait in the durable outbox; queued does not mean sent.
 
+Analysis recovery preserves the job ID, original request, saved phase, rejected responses and usage history.
+An explicit resume after assessment validation fails supplies corrective feedback, including invalid references
+and the current cohort's allowed listing/opportunity IDs. Validation remains mandatory; unsupported products
+are never silently accepted or marked analyzed. Recovery does not automatically authorize repeated paid calls.
+An investigation blocked by a child job still requires an explicit orchestrator resume after the fix.
+
 ## Fresh-investigation boundary
 
 The requested reset cleared fetched evidence, research results, business conclusions and semantic caches without resetting historical spending/rate ledgers or conversation context. Tracked historical business-report documents were removed from the current tree; Git history was not rewritten. Previous results are not priors for the next investigation.
