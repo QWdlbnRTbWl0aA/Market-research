@@ -59,6 +59,8 @@ Analysis recovery preserves the job ID, original request, saved phase, rejected 
 An explicit resume after assessment validation fails supplies corrective feedback, including invalid references
 and the current cohort's allowed listing/opportunity IDs. Validation remains mandatory; unsupported products
 are never silently accepted or marked analyzed. Recovery does not automatically authorize repeated paid calls.
+OpenAI assessment schemas also constrain citation and existing-opportunity IDs to those supplied for that call;
+earlier opportunity evidence does not become a valid citation for the current cohort.
 An investigation blocked by a child job still requires an explicit orchestrator resume after the fix.
 
 ## Fresh-investigation boundary
