@@ -42,7 +42,46 @@ To run just the viewer against the existing project data, without the other serv
 java -jar services/research-orchestrator/target/research-orchestrator-0.1.0-SNAPSHOT.jar --spring.profiles.active=viewer
 ```
 
-The viewer profile disables discovery workers, live/paid providers and SMTP sending. The page has no mutation controls; the existing workflow API remains separate. It shows the current saved iteration's completed handoffs, not an archive-history browser. Downloads are specifications and references, not generated product assets. Stop with Ctrl-C, and do not run it alongside another orchestrator using the same database/port.
+The viewer profile disables discovery workers, live/paid providers and SMTP sending. Brief controls only read saved results; the separate AI connection panel can authorize ChatGPT and list/select account models but does not launch research. The workflow API remains separate. The library shows the current saved iteration's completed handoffs, not an archive-history browser. Downloads are specifications and references, not generated product assets. Stop with Ctrl-C, and do not run it alongside another orchestrator using the same database/port.
+
+### ChatGPT analysis connection
+
+Refinement, business analysis and their reviews default to `research.runtime.analysis-model-provider=chatgpt`.
+`research.runtime.chatgpt-api-fallback=true` permits the existing OpenAI API route only when ChatGPT is
+definitively unavailable (not connected, plan permission/usage rejection or local daily limit). API fallback
+also requires `paid-enabled`, a selected named allowance and its unchanged conservative reservation guard.
+Interrupted streams, invalid model output and unknown failures do not trigger an automatic paid retry.
+Product definition retains its existing provider selection.
+
+Open **AI connection** in the brief library. When the browser is on another device, run this on that device
+using your existing SSH destination, and keep it running during sign-in:
+
+```bash
+ssh -N -L 1456:127.0.0.1:1456 <your-SSH-destination>
+```
+
+Choose **Continue with ChatGPT**, open the resulting sign-in link, and authorize ChatGPT plan usage.
+Then return to the app, choose **Load available models**, select an account-supported model and choose
+**Use selected model**. Sign-in and model discovery do not invoke inference. Review app usage/credit limits
+in ChatGPT settings. Plan limits/credits are separate from the API allowance; no dollar balance is inferred.
+
+The application owns this OAuth registration and never reads Codex or browser credentials. Its protected
+session defaults to `~/env_files/market-research-chatgpt.json` (override `research.models.chatgpt-session-file`).
+The callback binds only `127.0.0.1`, with configurable `chatgpt-callback-port` defaulting to 1456. Tokens
+are exchanged and refreshed server-side with cross-process locking; state, PKCE, nonce, issuer, signature,
+audience, expiry and granted plan-use scope are checked. Tokens never enter the page or research databases.
+Reconnect the same registration after authorization expires; manage revocation in ChatGPT settings.
+
+ChatGPT uses streaming Responses with `store=false`, strict response schemas and existing semantic checks.
+Its separate append-only call history and preflight records live under `data/provider-ledgers/chatgpt/`;
+stage records include primary/fallback attempts. `chatgpt-daily-limit` defaults to 100 attempts per UTC day;
+`chatgpt-read-timeout-ms` defaults to 300000. This local cap does not represent the account's remaining plan
+allowance, which this adapter cannot read. An incomplete call remains uncertain and requires explicit
+operator recovery. If both routes are unavailable, the owning worker pauses with its draft intact.
+
+See OpenAI's [registration guide](https://developers.openai.com/siwc/token-sharing-open-source/sign-in),
+[inference contract](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
+and [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
 
 Viewer HTTP/export regression tests run under Maven Failsafe. The buildless frontend also has dependency-free interaction tests: `node --test services/research-orchestrator/src/test/js/briefs.test.cjs`. These exercise rendering, filters, failures and stale-response handling with a small DOM fixture; they are not visual browser tests.
 

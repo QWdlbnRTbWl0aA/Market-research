@@ -110,7 +110,9 @@ class BriefLibraryIT {
     }
     @Test void webAssetsAreLocalAndRenderSourceContentAsTextNotHtml() {
         String html=client().get().uri("/").retrieve().body(String.class);
-        assertTrue(html.contains("Product briefs"));assertTrue(html.contains("/briefs.js"));assertFalse(html.contains("https://"));
+        assertTrue(html.contains("Product briefs"));assertTrue(html.contains("/briefs.js"));
+        assertFalse(java.util.regex.Pattern.compile("<(?:script|link)\\b[^>]*(?:src|href)=[\"']https?://",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html).find(),
+            "External account-settings links are allowed; executable and stylesheet assets must stay local");
         String script=client().get().uri("/briefs.js").retrieve().body(String.class);
         assertTrue(script.contains("textContent"));assertFalse(script.contains("innerHTML"));
         assertFalse(script.contains("method: 'POST'"));

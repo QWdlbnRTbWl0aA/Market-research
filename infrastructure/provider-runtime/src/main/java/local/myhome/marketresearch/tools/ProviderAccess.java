@@ -56,34 +56,69 @@ public class ProviderAccess {
             env.getProperty("research.models.gemini-free-confirmed",Boolean.class,false));
         var models=new ResearchModels(ProviderHttp.client("https://api.openai.com/v1",env),
             ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",env),settings,json,root);
-        Path checked=root.resolve("data/provider-ledgers/model-preflight.json");
-        if(!java.nio.file.Files.exists(checked)||java.nio.file.Files.getLastModifiedTime(checked).toInstant()
-                .isBefore(java.time.Instant.now().minusSeconds(23*3600)))
-            new ModelPreflight(ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",env),
-                ProviderHttp.client("https://api.openai.com/v1",env),json,settings).run(root);
-        String route=env.getProperty("research.runtime.model-provider","gemini");
+        String route=purpose.startsWith("discovery-")
+            ? env.getProperty("research.runtime.analysis-model-provider","chatgpt")
+            : env.getProperty("research.runtime.model-provider","gemini");
         if(!env.getProperty("research.runtime.paid-enabled",Boolean.class,false)) {
             if("openai".equals(route))throw new ToolFailure("Paid calls are disabled");
-            route="gemini";
+            if(!"chatgpt".equals(route))route="gemini";
         }
         String allowance=env.getProperty("research.runtime.openai-allowance-id");
-        if(!"gemini".equals(route)&&(allowance==null||allowance.isBlank()))
+        if("openai".equals(route)&&(allowance==null||allowance.isBlank()))
             throw new ToolFailure("Select a fresh OpenAI allowance explicitly");
         String invocation=java.util.UUID.randomUUID().toString();
         String observationTime=java.time.Instant.now().toString();
         long started=System.nanoTime();boolean succeeded=false;
+        var attempts=new ArrayList<Map<String,Object>>();
+        var selectedUsage=new LinkedHashMap<String,Object>();
         try {
+            if("chatgpt".equals(route)) {
+                var chatgpt=new ChatGptModels(ProviderHttp.client("https://api.openai.com/v1",env,
+                    env.getProperty("research.models.chatgpt-read-timeout-ms",Integer.class,300_000)),
+                    new ChatGptSession(env,json),json,root,env.getProperty("research.models.chatgpt-daily-limit",Integer.class,100));
+                try {
+                    var answer=chatgpt.ask(purpose+"#"+invocation,instruction+"\nResearch observation time (UTC): "+observationTime,evidence);
+                    succeeded=true;return answer;
+                } catch(ChatGptUnavailable unavailable) {
+                    if(!env.getProperty("research.runtime.chatgpt-api-fallback",Boolean.class,true)
+                            ||!env.getProperty("research.runtime.paid-enabled",Boolean.class,false))throw unavailable;
+                    if(allowance==null||allowance.isBlank())throw new ToolFailure("API fallback requires an explicitly selected allowance");
+                    selectedUsage.put("fallbackReason",unavailable.reason);
+                } finally {
+                    attempts.add(new LinkedHashMap<>(chatgpt.usage()));
+                    selectedUsage.putAll(chatgpt.usage());
+                }
+                try {
+                    ensurePreflight(settings);
+                    var result=models.askOn("openai",purpose+"#"+invocation+"-fallback",
+                        instruction+"\nResearch observation time (UTC): "+observationTime,evidence,BigDecimal.ONE,750_000,allowance);
+                    succeeded=true;return result;
+                } finally {
+                    var fallbackUsage=new LinkedHashMap<String,Object>();fallbackUsage.put("provider","openai");fallbackUsage.put("requestSent",false);
+                    fallbackUsage.putAll(models.usage());selectedUsage.putAll(fallbackUsage);attempts.add(fallbackUsage);
+                }
+            }
+            ensurePreflight(settings);
             var result=models.askOn(route,purpose+"#"+invocation,
                 instruction+"\nResearch observation time (UTC): "+observationTime,evidence,BigDecimal.ONE,750_000,allowance);
             succeeded=true;return result;
         } finally {
-            var record=new LinkedHashMap<String,Object>(models.usage());
+            if(!models.usage().equals(Map.of("tokenUsageKnown",false)))selectedUsage.putAll(models.usage());
+            var record=new LinkedHashMap<String,Object>(selectedUsage.isEmpty()?models.usage():selectedUsage);
+            if(!attempts.isEmpty())record.put("attempts",attempts);
             record.put("invocationId",invocation);record.put("stage",purpose);record.put("at",java.time.Instant.now().toString());
             record.put("observationTime",observationTime);
             record.put("durationMillis",(System.nanoTime()-started)/1_000_000);record.put("status",succeeded?"SUCCEEDED":"FAILED_OR_DEFERRED");
             lastUsage.set(record);
             PrivateJson.write(root.resolve("data/provider-ledgers/stage-usage/"+invocation+".json"),record,json);
         }
+    }
+    private void ensurePreflight(ModelSettings settings) throws Exception {
+        Path checked=root.resolve("data/provider-ledgers/model-preflight.json");
+        if(!java.nio.file.Files.exists(checked)||java.nio.file.Files.getLastModifiedTime(checked).toInstant()
+                .isBefore(java.time.Instant.now().minusSeconds(23*3600)))
+            new ModelPreflight(ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",env),
+                ProviderHttp.client("https://api.openai.com/v1",env),json,settings).run(root);
     }
     private Path path(String name) {
         String value=env.getProperty(name);
