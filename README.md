@@ -61,7 +61,18 @@ and the current cohort's allowed listing/opportunity IDs. Validation remains man
 are never silently accepted or marked analyzed. Recovery does not automatically authorize repeated paid calls.
 OpenAI assessment schemas also constrain citation and existing-opportunity IDs to those supplied for that call;
 earlier opportunity evidence does not become a valid citation for the current cohort.
-An investigation blocked by a child job still requires an explicit orchestrator resume after the fix.
+An asynchronous child-job failure pauses its owning worker, exposed through `workerErrors`; other workers
+continue. Paused workers consume no polling or persistence work. Explicit orchestrator resume retries the
+saved jobs and clears worker pauses, including when the investigation itself remains ACTIVE. Pending or
+paused analysis never counts as completed coverage and prevents final archival.
+
+Query-count and refinement-depth limits constrain search expansion only. Accepted phrases keep their page
+pointers and continue pagination; fetched listings continue through analysis and product definition.
+Each affected query exposes `expansionStopReason` and retains any returned but unaccepted `deferredQueries`.
+At an expansion cap, no new refinement job is purchased; already-submitted jobs are consumed normally.
+After the accepted frontier drains, `BOUNDED_COMPLETE` distinguishes limited coverage from natural market
+exhaustion and allows downstream completion and archival. Provider failures and page safety limits remain
+separate visible stops; this does not increase any provider spending or request allowance.
 
 ## Fresh-investigation boundary
 

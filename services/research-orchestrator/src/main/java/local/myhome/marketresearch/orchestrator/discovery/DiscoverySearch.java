@@ -46,7 +46,8 @@ final class DiscoverySearch {
                 .thenComparingInt(branch -> branch.pages).thenComparingInt(branch -> branch.depth)).findFirst();
         if (pending.isEmpty()) {
             if(state.queries.stream().anyMatch(branch->!"DONE".equals(branch.status)))return false;
-            state.searchStatus = "EXHAUSTED";
+            state.searchStatus = state.queries.stream().anyMatch(query -> query.expansionStopReason != null)
+                ? "BOUNDED_COMPLETE" : "EXHAUSTED";
             return true;
         }
         var branch = pending.get();
@@ -115,6 +116,14 @@ final class DiscoverySearch {
 
     private boolean refine(DiscoveryState state, DiscoveryState.Query branch) {
         if (branch.refinementJob == null) {
+            // Expansion capacity is independent of pagination and downstream analysis.
+            // Do not purchase another refinement when none of its suggestions can be accepted.
+            String limit = expansionLimit(state, branch);
+            if (limit != null) {
+                branch.expansionStopReason = limit;
+                finishRefinement(branch);
+                return true;
+            }
             if (branch.refinementRequest == null) {
                 branch.refinementRequest = new Task("REFINE", state.query, branch.sample, List.of(),
                     state.queries.stream().map(value -> value.text).toList(), List.copyOf(state.families),
@@ -137,23 +146,44 @@ final class DiscoverySearch {
         branch.families = result.families();
         state.families.addAll(result.families());
         state.excluded.addAll(result.excludedListingIds());
-        branch.usable -= (int) result.excludedListingIds().stream().distinct().filter(state.listings::containsKey).count();
+        // A legacy cap failure may already have applied this result before blocking.
+        // Recompute from the frozen first-page sample instead of subtracting twice on resume.
+        branch.usable = (int) branch.sample.stream().filter(listing -> branch.listingIds.contains(listing.id()))
+            .filter(listing -> !result.excludedListingIds().contains(listing.id())).count();
         branch.successful = branch.usable > 0;
         int added = 0;
         for (String suggestion : result.queries()) {
             String query = SearchPolicy.normalize(suggestion);
             if (state.queries.stream().anyMatch(existing -> SearchPolicy.normalize(existing.text).equals(query))) continue;
-            if (state.queries.size() >= maxQueries || branch.depth >= maxDepth) throw new DiscoveryFlow.LimitReached("REFINEMENT_SAFETY_LIMIT");
+            String limit = expansionLimit(state, branch);
+            if (limit != null) {
+                branch.expansionStopReason = limit;
+                if (!branch.deferredQueries.contains(query)) branch.deferredQueries.add(query);
+                continue;
+            }
             state.queries.add(new DiscoveryState.Query(query, branch));
             added++;
         }
-        branch.refined = true;
-        branch.status = "OPEN";
-        if (branch.total > 1000 && added > 0) finish(branch, "SPLIT_INTO_FOCUSED_SAMPLES");
+        finishRefinement(branch);
+        if (branch.expansionStopReason == null && branch.total > 1000 && added > 0) finish(branch, "SPLIT_INTO_FOCUSED_SAMPLES");
         else if (!branch.sample.isEmpty() && result.excludedListingIds().size() >= branch.sample.size() * .8)
             finish(branch, "SEMANTIC_INTENT_EXHAUSTED");
         else if (branch.returned < 100 || branch.pages * 100 >= branch.total) finish(branch, "AVAILABLE_RESULTS_EXHAUSTED");
         return true;
+    }
+
+    private String expansionLimit(DiscoveryState state, DiscoveryState.Query branch) {
+        if (state.queries.size() >= maxQueries) return "QUERY_EXPANSION_LIMIT";
+        if (branch.depth >= maxDepth) return "DEPTH_EXPANSION_LIMIT";
+        return null;
+    }
+
+    private void finishRefinement(DiscoveryState.Query branch) {
+        branch.refined = true;
+        branch.status = "OPEN";
+        branch.nextAttemptAt = 0;
+        if (branch.returned < 100 || branch.pages * 100 >= branch.total)
+            finish(branch, "AVAILABLE_RESULTS_EXHAUSTED");
     }
 
     private void addRejectedContext(DiscoveryState.Query branch, List<?> rows) {

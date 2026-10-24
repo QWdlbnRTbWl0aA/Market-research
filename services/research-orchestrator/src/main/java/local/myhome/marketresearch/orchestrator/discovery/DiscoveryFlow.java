@@ -27,6 +27,10 @@ public class DiscoveryFlow {
         final String code;
         LimitReached(String code) { this.code = code; }
     }
+    static final class ChildJobStopped extends RuntimeException {
+        final String status;
+        ChildJobStopped(String status) { this.status = status; }
+    }
     private final DiscoveryStore store;
     private final DiscoveryNotices notices;
     private final RestClient analysis, content;
@@ -115,6 +119,12 @@ public class DiscoveryFlow {
                 } catch (LimitReached limit) {
                     block(state, limit.code);
                     changed = true;
+                } catch (ChildJobStopped stopped) {
+                    state.workerErrors.put(worker, "DEPENDENCY_JOB_" + stopped.status);
+                    notices.queue(state.id + ":worker:" + worker + ":" + state.iteration, "Research stage needs attention",
+                        "Discovery " + state.id + " paused " + worker + " because a child job is " + stopped.status
+                            + ". Other stages may continue; pending work is preserved.");
+                    changed = true;
                 } catch (RestClientResponseException failure) {
                     if (failure.getStatusCode().is4xxClientError() && failure.getStatusCode().value() != 429)
                         block(state, "DEPENDENCY_REJECTED_REQUEST");
@@ -181,7 +191,8 @@ public class DiscoveryFlow {
     }
     public void resume(UUID id) {
         mutate(id, state -> {
-            if (!"BLOCKED".equals(state.status)) throw new ResponseStatusException(HttpStatus.CONFLICT);
+            if (!"BLOCKED".equals(state.status) && !("ACTIVE".equals(state.status) && !state.workerErrors.isEmpty()))
+                throw new ResponseStatusException(HttpStatus.CONFLICT);
             // Explicitly authorize a retry of uncertain external effects, never do it automatically.
             for (var branch : state.queries) {
                 if ("FETCHING".equals(branch.status)) branch.status = "OPEN";
@@ -200,6 +211,7 @@ public class DiscoveryFlow {
             state.error = null;
             state.retryAt.clear();
             state.retryCounts.clear();
+            state.workerErrors.clear();
         });
     }
     public void approve(UUID id) {
@@ -262,8 +274,8 @@ public class DiscoveryFlow {
     }
 
     static void requireJob(String status) {
-        if (status == null || Set.of("BLOCKED","FAILED","CANCELLED").contains(status))
-            throw new IllegalStateException("Child job requires attention");
+        if (status == null) throw new IllegalStateException("Missing child job status");
+        if (Set.of("BLOCKED","FAILED","CANCELLED").contains(status)) throw new ChildJobStopped(status);
     }
     static String meaningful(Listing listing) {
         return hash(listing.title() + "|" + listing.description() + "|" + listing.tags() + "|" + listing.price()

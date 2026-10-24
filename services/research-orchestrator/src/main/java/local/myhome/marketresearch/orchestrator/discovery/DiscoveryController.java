@@ -25,6 +25,7 @@ public class DiscoveryController {
     private Map<String,Object> view(DiscoveryState s) {
         var m=new LinkedHashMap<String,Object>();m.put("id",s.id);m.put("query",s.query);m.put("status",s.status);
         m.put("searchStatus",s.searchStatus);m.put("error",s.error);m.put("listingCount",s.listings.size());
+        m.put("workerErrors",s.workerErrors);
         m.put("samplingPageBudget",s.samplingPageBudget);
         m.put("analyzedCount",s.processed.stream().filter(id->!s.excluded.contains(id)).count());m.put("excludedCount",s.excluded.size());
         m.put("pendingListings",s.listings.keySet().stream().filter(id->!s.processed.contains(id)&&!s.excluded.contains(id)).count());
@@ -32,7 +33,9 @@ public class DiscoveryController {
         m.put("queries",s.queries.stream().map(q->Map.of("query",q.text,"status",q.status,"pages",q.pages,
             "usablePerReturned",q.usableYield(),"parentUsablePerReturned",q.parentYield,
             "yieldImproved",q.usableYield()>q.parentYield,"novelListings",q.novel,
-            "stopReason",Objects.requireNonNullElse(q.stopReason,""))).toList());
+            "stopReason",Objects.requireNonNullElse(q.stopReason,""),
+            "expansionStopReason",Objects.requireNonNullElse(q.expansionStopReason,""),
+            "deferredQueries",q.deferredQueries)).toList());
         m.put("analysisJobs",s.batches.stream().map(batch->Map.of("job",Objects.toString(batch.job,""),"status",batch.status,
             "branch",Objects.toString(batch.branch,""),"listings",batch.ids.size(),"nextAttemptAt",batch.nextAttemptAt)).toList());
         m.put("productJobs",s.handoffs.stream().map(h->Map.of("key",h.key,"status",h.status,"job",Objects.toString(h.job,""))).toList());

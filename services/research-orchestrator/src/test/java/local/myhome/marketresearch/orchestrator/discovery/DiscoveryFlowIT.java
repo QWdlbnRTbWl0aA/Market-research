@@ -245,6 +245,104 @@ class DiscoveryFlowIT {
         assertEquals("BLOCKED",limited.get(run.id).status);assertEquals("PAGE_SAFETY_LIMIT",limited.get(run.id).error);
         assertNotEquals("EXHAUSTED",limited.get(run.id).searchStatus);
     }
+    DiscoveryFlow limitedExpansion(String limit, String value) {
+        String url="http://127.0.0.1:"+server.getAddress().getPort();
+        var env=new org.springframework.mock.env.MockEnvironment().withProperty(limit,value)
+            .withProperty("research.discovery.batch-size","100").withProperty("research.discovery.max-shops","0")
+            .withProperty("research.discovery.max-listing-review-requests","0").withProperty("research.discovery.max-shop-review-requests","0");
+        for(String name:List.of("analysis","content","archive"))env.withProperty("market-research.services."+name+"-base-url",url);
+        return new DiscoveryFlow(store,notices,JSON,env,provider);
+    }
+    @Test void expansionLimitsAllowAcceptedPagesAnalysisBriefsAndEvidenceCompleteArchive() throws Exception {
+        for(String limit:List.of("research.discovery.max-queries","research.discovery.max-depth")) {
+            clear();reset(provider);
+            var limited=limitedExpansion(limit,limit.endsWith("max-queries")?"1":"0");
+            when(provider.search(anyString(),eq(100),anyInt())).thenAnswer(call -> {
+                int offset=call.getArgument(2);
+                return Map.of("count",200,"results",java.util.stream.IntStream.range(1000+offset,1100+offset).mapToObj(i->row(i,true)).toList());
+            });
+            var run=limited.start("limited-"+limit,"Jewish printables");
+            for(int index=0;index<50&&!limited.get(run.id).status.equals("WATCHING");index++) {
+                limited.searchTick();limited.analysisTick();limited.deliveryTick();
+            }
+            var done=limited.get(run.id);
+            assertEquals("WATCHING",done.status,"error="+done.error);
+            assertEquals("BOUNDED_COMPLETE",done.searchStatus);
+            assertEquals(1,done.queries.size());assertEquals(2,done.queries.getFirst().pages);
+            assertEquals(200,done.processed.size());assertEquals(2,done.handoffs.size());
+            assertTrue(done.handoffs.stream().allMatch(h->"SUCCEEDED".equals(h.status)));
+            assertEquals(limit.endsWith("max-queries")?"QUERY_EXPANSION_LIMIT":"DEPTH_EXPANSION_LIMIT",done.queries.getFirst().expansionStopReason);
+            assertEquals(2,analysisPosts.get(),"Only business jobs; no refinement can add a branch");
+            assertEquals(2,((List<?>)archived.getFirst().get("sourcePages")).size());
+            verify(provider).search("jewish printables",100,0);verify(provider).search("jewish printables",100,100);
+            clearInvocations(provider,store);
+            limited.searchTick();limited.analysisTick();limited.deliveryTick();
+            verifyNoInteractions(provider);verify(store,never()).save(any());
+        }
+    }
+    @Test void legacyBlockedRunResumesWithoutLosingAcceptedOrDeferredQueries() throws Exception {
+        var limited=limitedExpansion("research.discovery.max-queries","2");
+        var run=limited.start("resume-limit","Jewish printables");
+        var branch=run.queries.getFirst();branch.pages=1;branch.returned=100;branch.usable=100;branch.total=5000;
+        branch.status="REFINING";branch.refinementJob=UUID.randomUUID();
+        var original=SearchPolicy.listing(row(1,true));run.listings.put("1",original);branch.listingIds.add("1");
+        var excluded=SearchPolicy.listing(row(2,true));run.listings.put("2",excluded);branch.listingIds.add("2");
+        branch.sample=List.of(original,excluded);branch.usable=1;run.excluded.add("2");
+        run.processed.add("1");run.status="BLOCKED";run.error="REFINEMENT_SAFETY_LIMIT";
+        jobs.put(branch.refinementJob,new TaskView(branch.refinementJob,"REFINE","SUCCEEDED",null,0,0,
+            new Refinement(List.of("Accepted child","Deferred child"),List.of("family"),"Fixture",List.of("2")),null));
+        store.save(run);
+        limited.resume(run.id);limited.searchTick();
+        var recovered=limited.get(run.id);var recoveredBranch=recovered.queries.getFirst();
+        assertEquals("ACTIVE",recovered.status);assertNull(recovered.error);
+        assertEquals(2,recovered.queries.size());assertEquals("accepted child",recovered.queries.get(1).text);
+        assertEquals(List.of("deferred child"),recoveredBranch.deferredQueries);
+        assertEquals("QUERY_EXPANSION_LIMIT",recoveredBranch.expansionStopReason);
+        assertEquals("OPEN",recoveredBranch.status,"Partial expansion must not abandon the parent pool");
+        assertEquals(original,recovered.listings.get("1"));assertTrue(recovered.processed.contains("1"));
+        assertEquals(1,recoveredBranch.usable,"Previously applied exclusions must not be subtracted again");
+        assertTrue(recovered.excluded.contains("2"));
+        assertEquals(branch.refinementJob,recoveredBranch.refinementJob);
+        var restarted=limitedExpansion("research.discovery.max-queries","2");
+        assertEquals(List.of("deferred child"),restarted.get(run.id).queries.getFirst().deferredQueries);
+        assertEquals(0,analysisPosts.get(),"Reuse the saved refinement job, never regenerate it");
+        verifyNoInteractions(provider);
+    }
+    @Test void blockedAnalysisIsDurablyIdleWhileAcceptedSearchAndExistingHandoffsContinue() throws Exception {
+        var limited=limitedExpansion("research.discovery.max-queries","1");
+        var run=limited.start("independent-workers","Jewish printables");
+        run.queries.getFirst().refined=true;
+        var source=SearchPolicy.listing(row(1,true));run.listings.put("1",source);
+        var batch=new DiscoveryState.Batch();batch.ids=List.of("1");batch.branch=run.query;batch.key="failed-batch";
+        batch.request=new Task("BUSINESS",run.query,List.of(source),List.of(),List.of(),List.of());
+        batch.job=UUID.randomUUID();batch.status="RUNNING";run.batches.add(batch);
+        jobs.put(batch.job,new TaskView(batch.job,"BUSINESS","BLOCKED","PROVIDER_OR_VALIDATION_FAILED",1,0,null,null));
+        var handoff=new DiscoveryState.Handoff();handoff.key="independent-handoff";
+        handoff.request=new ProductDefinition.Request(run.id,run.query,product("1"),List.of(source));run.handoffs.add(handoff);
+        store.save(run);limited.analysisTick();
+        assertEquals("ACTIVE",limited.get(run.id).status);
+        assertEquals("DEPENDENCY_JOB_BLOCKED",limited.get(run.id).workerErrors.get("ANALYSIS"));
+        clearInvocations(store);
+        limited.analysisTick();limited.analysisTick();
+        verify(store,never()).get(any());verify(store,never()).save(any());
+        when(provider.search(anyString(),eq(100),eq(0))).thenReturn(Map.of("count",1,"results",List.of(row(2,true))));
+        limited.searchTick();limited.deliveryTick();limited.deliveryTick();
+        var paused=limited.get(run.id);
+        assertEquals(2,paused.listings.size());assertTrue(paused.processed.isEmpty());
+        assertEquals("SUCCEEDED",paused.handoffs.getFirst().status);assertNotNull(paused.handoffs.getFirst().brief);
+        assertTrue(archived.isEmpty(),"Unresolved analysis cannot be archived as complete");
+        var restarted=limitedExpansion("research.discovery.max-queries","1");
+        assertEquals(paused.workerErrors,restarted.get(run.id).workerErrors);
+        jobs.put(batch.job,new TaskView(batch.job,"BUSINESS","SUCCEEDED",null,1,0,null,
+            new Assessment("Recovered",List.of(),List.of(),List.of(),false,"Fixture")));
+        restarted.resume(run.id);restarted.analysisTick();
+        var recovered=restarted.get(run.id);
+        assertTrue(recovered.workerErrors.isEmpty());assertTrue(recovered.processed.contains("1"));
+        assertEquals(batch.job,recovered.batches.getFirst().job);assertNotNull(recovered.handoffs.getFirst().brief);
+        assertEquals(0,analysisPosts.get(),"The original failed job is resumed rather than resubmitted");
+        recovered.workerErrors.put("DELIVERY","DEPENDENCY_JOB_BLOCKED");store.save(recovered);
+        restarted.cancel(run.id);restarted.deliveryTick();assertEquals("CANCELLED",restarted.get(run.id).status);
+    }
     @Test void semanticJunkDoesNotBecomeAPerListingResearchProject() {
         var run=flow.start("junk","Jewish printables");
         var l=new Listing("1","11","TEST_FIXTURE unrelated digital item","Description",List.of(),BigDecimal.ONE,"USD",0,0,0);
