@@ -8,6 +8,8 @@ final class DiscoveryReadiness {
     private DiscoveryReadiness() {}
 
     static long next(DiscoveryState state, String worker) {
+        if (state.workerErrors.containsKey(worker)
+                && !("DELIVERY".equals(worker) && "CANCELLATION_REQUESTED".equals(state.status))) return IDLE;
         long due = switch (worker) {
             case "WATCH" -> "WATCHING".equals(state.status) ? state.nextWatch : IDLE;
             case "SEARCH" -> search(state);

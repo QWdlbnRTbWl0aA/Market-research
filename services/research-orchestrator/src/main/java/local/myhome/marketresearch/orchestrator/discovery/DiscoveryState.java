@@ -10,12 +10,13 @@ public class DiscoveryState {
     public String query,status="ACTIVE",searchStatus="ACTIVE",error,blockedFrom="ACTIVE";
     public Map<String,Integer> retryCounts=new LinkedHashMap<>();
     public Map<String,Long> retryAt=new LinkedHashMap<>();
+    public Map<String,String> workerErrors=new LinkedHashMap<>();
     public long nextWatch;
     public long nextSearchAttempt;
     public int iteration=1;
     public int analysisBatchSize=500, pageLimit=20;
     public int samplingPageBudget; // Zero means unbounded; a sampled finish is never natural exhaustion.
-    public boolean searchComplete() { return Set.of("EXHAUSTED", "SAMPLING_COMPLETE").contains(searchStatus); }
+    public boolean searchComplete() { return Set.of("EXHAUSTED", "SAMPLING_COMPLETE", "BOUNDED_COMPLETE").contains(searchStatus); }
     public int stableAnalyses; // Legacy serialized field; never used for global exhaustion.
     public List<Query> queries=new ArrayList<>();
     public Map<String,Listing> listings=new LinkedHashMap<>();
@@ -46,6 +47,8 @@ public class DiscoveryState {
         public Map<String,Object> baseline=new LinkedHashMap<>(),latest=new LinkedHashMap<>();
         public List<String> families=new ArrayList<>();
         public String workerStatus;
+        public String expansionStopReason;
+        public List<String> deferredQueries=new ArrayList<>();
         public Set<String> listingIds=new LinkedHashSet<>();
         public int stableAnalyses;
         public long nextAttemptAt;

@@ -62,7 +62,8 @@ final class DiscoveryDelivery {
         }
         if (!state.notified) {
             notices.queue(state.id + ":complete:" + state.iteration, "Research ready",
-                "Discovery " + state.id + " completed its current sampled scope. " + state.handoffs.size()
+                "Discovery " + state.id + " completed its current scope (search status: " + state.searchStatus + "). "
+                + ("BOUNDED_COMPLETE".equals(state.searchStatus) ? "Search expansion was limited; this is not market exhaustion. " : "") + state.handoffs.size()
                 + " product briefs are available. Weekly deterministic monitoring is scheduled; deep reanalysis requires your approval.");
             state.notified = true;
         }
@@ -107,6 +108,7 @@ final class DiscoveryDelivery {
         result.put("iteration", state.iteration);
         result.put("query", state.query);
         result.put("searchStatus", state.searchStatus);
+        result.put("workerErrors", state.workerErrors);
         result.put("samplingPageBudget", state.samplingPageBudget);
         result.put("protocol", Discovery.VERSION);
         result.put("finishedAt", state.finishedAt);
