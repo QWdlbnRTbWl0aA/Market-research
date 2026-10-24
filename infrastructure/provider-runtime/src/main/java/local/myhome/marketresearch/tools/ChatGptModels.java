@@ -68,6 +68,16 @@ final class ChatGptModels {
                 if(known){settled.put("inputTokens",reported.get("input_tokens"));settled.put("outputTokens",reported.get("output_tokens"));}
                 settled.put("billingBasis","ChatGPT plan usage or credits; separate from API allowance");usage=settled;
                 event.put("status","COMPLETED");event.put("usage",settled);PrivateJson.write(ledger,saved,json);
+                String responseFile=UUID.randomUUID()+".json";
+                var retained=new LinkedHashMap<String,Object>();
+                retained.put("status",result.get("status"));retained.put("usage",reported);
+                retained.put("outputTypes",result.get("output") instanceof List<?> output
+                    ? output.stream().filter(Map.class::isInstance).map(value->((Map<?,?>)value).get("type")).toList():List.of());
+                retained.put("messages",result.get("output") instanceof List<?> output
+                    ? output.stream().filter(value->value instanceof Map<?,?> item&&"message".equals(item.get("type"))).toList():List.of());
+                retained.put("streamEvents",result.getOrDefault("streamEvents",List.of()));
+                PrivateJson.write(directory.resolve("responses").resolve(responseFile),retained,json);
+                event.put("responseFile",responseFile);PrivateJson.write(ledger,saved,json);
                 String answer=answer(result);
                 try{return json.readValue(answer,Map.class);}catch(RuntimeException malformed){throw new MalformedModelResponse(answer);}
             } catch(ChatGptUnavailable unavailable) {
@@ -80,6 +90,9 @@ final class ChatGptModels {
     }
     @SuppressWarnings("unchecked") private Map<String,Object> consume(InputStream input) throws IOException {
         var reader=new BufferedReader(new InputStreamReader(input,StandardCharsets.UTF_8));
+        var messages=new TreeMap<Integer,Map<String,Object>>();
+        var finalizedText=new TreeMap<String,String>();
+        var eventTypes=new LinkedHashSet<String>();
         var data=new StringBuilder();String line;
         while((line=reader.readLine())!=null) {
             if(line.startsWith("data:")){
@@ -89,10 +102,25 @@ final class ChatGptModels {
             else if(line.isEmpty()&&!data.isEmpty()) {
                 String payload=data.toString();data.setLength(0);if("[DONE]".equals(payload))continue;
                 Map<String,Object> event=json.readValue(payload,Map.class);String type=Objects.toString(event.get("type"),"");
+                eventTypes.add(type);
+                if("response.output_item.done".equals(type)&&event.get("item") instanceof Map<?,?> item
+                        &&"message".equals(item.get("type"))&&"completed".equals(item.get("status")))
+                    messages.put(((Number)event.get("output_index")).intValue(),(Map<String,Object>)item);
+                if("response.output_text.done".equals(type)&&event.get("text") instanceof String text)
+                    finalizedText.put(String.format(Locale.ROOT,"%08d:%08d",((Number)event.get("output_index")).intValue(),
+                        ((Number)event.get("content_index")).intValue()),text);
                 if("response.completed".equals(type)) {
                     if(!(event.get("response") instanceof Map<?,?> response)||!"completed".equals(response.get("status")))
                         throw new ToolFailure("ChatGPT completion was not confirmed");
-                    return (Map<String,Object>)response;
+                    var completed=new LinkedHashMap<String,Object>((Map<String,Object>)response);
+                    // Some plan streams finalize output in done events without repeating it in the terminal envelope.
+                    // Only finalized content is considered, and only after the explicit response.completed above.
+                    if(!hasText(completed)&&!hasRefusal(completed)) {
+                        if(!messages.isEmpty())completed.put("output",List.copyOf(messages.values()));
+                        else if(!finalizedText.isEmpty())completed.put("output",List.of(Map.of("type","message","role","assistant",
+                            "status","completed","content",finalizedText.values().stream().map(text->Map.of("type","output_text","text",text)).toList())));
+                    }
+                    completed.put("streamEvents",List.copyOf(eventTypes));return completed;
                 }
                 if("response.failed".equals(type)||"error".equals(type)) {
                     Object source=event.get("response") instanceof Map<?,?> response?response.get("error"):event.get("error");
@@ -106,12 +134,23 @@ final class ChatGptModels {
         }
         throw new ToolFailure("ChatGPT stream interrupted before confirmed completion; no automatic fallback");
     }
+    private boolean hasText(Map<String,Object> response) {return !text(response).isEmpty();}
+    private boolean hasRefusal(Map<String,Object> response) {
+        if(response.get("output") instanceof List<?> output)for(Object item:output)
+            if(item instanceof Map<?,?> message&&message.get("content") instanceof List<?> content)
+                if(content.stream().anyMatch(part->part instanceof Map<?,?> field&&"refusal".equals(field.get("type"))))return true;
+        return false;
+    }
     private String answer(Map<String,Object> response) {
+        String answer=text(response);
+        if(answer.isEmpty())throw new ToolFailure("ChatGPT returned no structured answer; no automatic fallback");
+        return answer;
+    }
+    private String text(Map<String,Object> response) {
         var text=new StringBuilder();
         if(response.get("output") instanceof List<?> output)for(Object item:output)
             if(item instanceof Map<?,?> message&&message.get("content") instanceof List<?> content)for(Object part:content)
                 if(part instanceof Map<?,?> field&&"output_text".equals(field.get("type"))&&field.get("text") instanceof String value)text.append(value);
-        if(text.isEmpty())throw new ToolFailure("ChatGPT returned no structured answer; no automatic fallback");
         return text.toString();
     }
     private static Map<String,Object> withType(Map<String,Object> format) {

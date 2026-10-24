@@ -57,4 +57,28 @@ class ChatGptModelsTest {
         assertThrows(MalformedModelResponse.class,()->models.ask("discovery-business","JSON",Map.of()));
         assertEquals(true,models.usage().get("tokenUsageKnown"));assertEquals("COMPLETED",((Map<?,?>)calls().getFirst()).get("status"));server.verify();
     }
+    @Test void finalizedMessageSurvivesATerminalEnvelopeThatDoesNotRepeatOutput() throws Exception {
+        String message="data: "+json.writeValueAsString(Map.of("type","response.output_item.done","output_index",1,"item",Map.of(
+            "type","message","role","assistant","status","completed","content",List.of(Map.of("type","output_text","text","{\"summary\":\"finalized\"}")))))+"\n\n";
+        String terminal="data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":100,\"output_tokens\":50}}}\n\n";
+        server.expect(requestTo("https://api.invalid/v1/responses")).andRespond(withSuccess(message+terminal,MediaType.TEXT_EVENT_STREAM));
+        assertEquals("finalized",models.ask("discovery-review","JSON",Map.of()).get("summary"));
+        var event=(Map<?,?>)calls().getFirst();assertEquals("COMPLETED",event.get("status"));
+        var retained=json.readValue(Files.readString(root.resolve("data/provider-ledgers/chatgpt/responses").resolve(event.get("responseFile").toString())),Map.class);
+        assertEquals(1,((List<?>)retained.get("messages")).size());
+        assertTrue(((List<?>)retained.get("streamEvents")).contains("response.output_item.done"));server.verify();
+    }
+    @Test void finalizedTextRequiresWholeResponseCompletionAndNeverUsesUnconfirmedDeltas() throws Exception {
+        String text="data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"content_index\":0,\"text\":\"{\\\"summary\\\":\\\"done\\\"}\"}\n\n";
+        server.expect(requestTo("https://api.invalid/v1/responses")).andRespond(withSuccess(text,MediaType.TEXT_EVENT_STREAM));
+        ToolFailure failure=assertThrows(ToolFailure.class,()->models.ask("discovery-review","JSON",Map.of()));
+        assertFalse(failure instanceof ChatGptUnavailable);
+        assertEquals("REQUEST_STARTED_OR_UNCERTAIN",((Map<?,?>)calls().getFirst()).get("status"));server.verify();
+    }
+    @Test void textDoneEventsAreUsedOnlyWithConfirmedCompletionAndRetainedForAudit() throws Exception {
+        String text="data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"content_index\":0,\"text\":\"{\\\"summary\\\":\\\"done\\\"}\"}\n\n";
+        String terminal="data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":100,\"output_tokens\":50}}}\n\n";
+        server.expect(requestTo("https://api.invalid/v1/responses")).andRespond(withSuccess(text+terminal,MediaType.TEXT_EVENT_STREAM));
+        assertEquals("done",models.ask("discovery-review","JSON",Map.of()).get("summary"));server.verify();
+    }
 }

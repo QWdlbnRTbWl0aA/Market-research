@@ -73,6 +73,9 @@ audience, expiry and granted plan-use scope are checked. Tokens never enter the 
 Reconnect the same registration after authorization expires; manage revocation in ChatGPT settings.
 
 ChatGPT uses streaming Responses with `store=false`, strict response schemas and existing semantic checks.
+Finalized message/text events are retained when a terminal envelope does not repeat the answer; the full
+response must still reach confirmed completion before any result is accepted. Private completion records
+retain final messages, event types and usage for debugging, excluding reasoning content and credentials.
 Its separate append-only call history and preflight records live under `data/provider-ledgers/chatgpt/`;
 stage records include primary/fallback attempts. `chatgpt-daily-limit` defaults to 100 attempts per UTC day;
 `chatgpt-read-timeout-ms` defaults to 300000. This local cap does not represent the account's remaining plan
