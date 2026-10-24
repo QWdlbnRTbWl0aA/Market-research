@@ -43,3 +43,10 @@ A scheduling check then found that the global Etsy retry pointer also delayed cr
 needed no new Etsy calls. The orchestrator now defers only actual missing-evidence requests. Regression tests
 cover saved evidence flowing through briefs during a search quota wait, genuinely missing evidence idling
 without calls or writes, and migration of old scheduler projections while preserving the full saved state.
+
+After the second full Maven verification, the scheduling correction was deployed from an immutable runtime
+artifact. The existing investigation is ACTIVE with no worker errors, 3,806 fetched listings, 1,289 analyzed,
+2,447 pending and 18 completed briefs at this checkpoint. The next 100-listing business-generation batch
+started on GPT-6.1-Sol while the original Etsy retry timestamp remained unchanged, verifying live stage
+independence. Historical provider ledgers and completed work remain intact. Research is ongoing; neither
+archival nor full-market exhaustion is claimed.
