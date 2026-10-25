@@ -99,6 +99,17 @@ class EtsyResearchTest {
         state(List.of(1.0),quota("100"));
         ledger.locked(6,1,b -> { assertEquals(0,b.priorAttempts()); return null; });
     }
+    @Test void raisedSharedLimitReusesExistingHistoryAndStillEnforcesTheNewBoundary() throws Exception {
+        state(Collections.nCopies(400,1000.0),quota("4600"));
+        String before=Files.readString(directory.resolve("state/budget.json"));
+        assertThrows(ProviderDeferred.class,()->ledger.locked(400,2,b->null));
+        ledger.locked(QuotaLedger.DAILY_REQUEST_LIMIT,2,b->{assertEquals(400,b.priorAttempts());return null;});
+        assertEquals(before,Files.readString(directory.resolve("state/budget.json")),"Rechecking policy must not reset the ledger");
+        state(Collections.nCopies(4499,1000.0),quota("501"));
+        assertThrows(ProviderDeferred.class,()->ledger.locked(QuotaLedger.DAILY_REQUEST_LIMIT,2,b->null),"Reserve capacity for probe plus request");
+        ledger.locked(QuotaLedger.DAILY_REQUEST_LIMIT,1,b->{assertEquals(4499,b.priorAttempts());return null;});
+        assertThrows(ToolFailure.class,()->ledger.locked(4501,1,b->null));server.verify();
+    }
     @Test void providerFailureIsNotRetriedAndDoesNotExposeBody() {
         server.expect(requestTo("https://example.invalid/openapi-ping"))
             .andRespond(withServerError().body("private provider diagnostic"));
@@ -158,7 +169,7 @@ class EtsyResearchTest {
         server.verify();
     }
     @Test void insufficientBatchCapacityStopsBeforeProbe() throws Exception {
-        state(Collections.nCopies(16,1000.0),quota("4999"));
+        state(Collections.nCopies(QuotaLedger.DAILY_REQUEST_LIMIT-14,1000.0),quota("4999"));
         assertThrows(ToolFailure.class,() -> research.collect(directory.resolve("cohort")));
         server.verify();
     }

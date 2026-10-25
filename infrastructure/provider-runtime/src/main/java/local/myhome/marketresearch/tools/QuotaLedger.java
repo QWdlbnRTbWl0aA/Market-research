@@ -11,6 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Compatible with the existing JSON calls/quota/blocked_until ledger (epoch seconds). */
 public final class QuotaLedger {
+    public static final int DAILY_REQUEST_LIMIT = 4500;
     @FunctionalInterface public interface Sleeper { void sleep(long millis) throws InterruptedException; }
     @FunctionalInterface public interface Work<T> { T run(Budget budget) throws Exception; }
     private final Path directory;
@@ -22,6 +23,7 @@ public final class QuotaLedger {
         this.directory = directory; this.json = json; this.clock = clock; this.sleeper = sleeper;
     }
     public <T> T locked(int cap, int required, Work<T> work) throws Exception {
+        if(cap<1||cap>DAILY_REQUEST_LIMIT)throw new ToolFailure("Etsy local daily limit must be between 1 and 4500");
         PrivateJson.directory(directory);
         try (var channel = FileChannel.open(directory.resolve("budget.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
             try (var lock = channel.tryLock()) {

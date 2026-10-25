@@ -14,7 +14,7 @@ final class LargeSampleCollector {
         "halloween teal pumpkin sign printable","halloween invitation editable","halloween svg bundle","halloween clipart png","halloween planner digital");
     record Limits(int listings,int shops,int pages,int listingReviews,int localCap,int maxNewCalls) {
         Limits {if(listings<1||shops<1||pages<1||listingReviews<0||localCap<maxNewCalls||maxNewCalls<1)throw new IllegalArgumentException("Invalid collection limits");}
-        static Limits standard(){return new Limits(5000,50,100,20,400,250);}
+        static Limits standard(){return new Limits(5000,50,100,20,QuotaLedger.DAILY_REQUEST_LIMIT,250);}
     }
     private final Path root;private final EtsyGateway gateway;private final QuotaLedger ledger;private final ObjectMapper json;
     private final Limits limits;

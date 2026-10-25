@@ -3,7 +3,7 @@ research:
   runtime:
     live-enabled: false
     model-provider: gemini
-    etsy-daily-cap: 400
+    etsy-daily-cap: 4500
     paid-enabled: false
     openai-allowance-id: ${OPENAI_ALLOWANCE_ID:}
   tools:

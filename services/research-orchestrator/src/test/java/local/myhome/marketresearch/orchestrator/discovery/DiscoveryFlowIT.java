@@ -203,6 +203,22 @@ class DiscoveryFlowIT {
         assertTrue(flow.get(run.id).nextSearchAttempt>System.currentTimeMillis());
         verify(provider,times(1)).search(anyString(),anyInt(),anyInt());
     }
+    @Test void recheckingEtsyQuotaChangesOnlyTheWaitAndNeverRetriesModelJobs() throws Exception {
+        var run=flow.start("quota-policy-change","Jewish printables");
+        run.nextSearchAttempt=System.currentTimeMillis()+3600000;run.error="KNOWN_QUOTA_WAIT";
+        var source=SearchPolicy.listing(row(1,true));run.listings.put("1",source);run.processed.add("1");
+        var batch=new DiscoveryState.Batch();batch.ids=List.of("2");batch.nextAttemptAt=run.nextSearchAttempt;run.batches.add(batch);
+        run.workerErrors.put("DELIVERY","DEPENDENCY_JOB_BLOCKED");store.save(run);
+        when(provider.etsyRetryAt()).thenReturn(0L);
+        client().post().uri("/v1/discoveries/"+run.id+"/recheck-etsy-quota").retrieve().toBodilessEntity();
+        var ready=flow.get(run.id);assertEquals(0,ready.nextSearchAttempt);assertEquals(0,ready.batches.getFirst().nextAttemptAt);
+        assertEquals("ACTIVE",ready.status);assertNull(ready.error);assertEquals(source,ready.listings.get("1"));assertTrue(ready.processed.contains("1"));
+        assertEquals(run.workerErrors,ready.workerErrors);assertEquals(0,analysisPosts.get());
+        verify(provider,never()).search(anyString(),anyInt(),anyInt());
+        long providerRetry=System.currentTimeMillis()+60000;when(provider.etsyRetryAt()).thenReturn(providerRetry);
+        flow.recheckEtsyQuota(run.id);assertEquals(providerRetry,flow.get(run.id).nextSearchAttempt);
+        assertEquals("KNOWN_QUOTA_WAIT",flow.get(run.id).error);
+    }
     @Test void savedEvidenceCanBeAnalyzedAndDefinedWhileSearchWaitsOnEtsy() {
         var run=flow.start("independent-evidence","Jewish printables");
         run.nextSearchAttempt=System.currentTimeMillis()+3600000;run.queries.getFirst().refined=true;

@@ -16,6 +16,7 @@ public class DiscoveryController {
     @GetMapping("/{id}") public Map<String,Object> get(@PathVariable UUID id){return view(flow.get(id));}
     @GetMapping("/{id}/results") public Map<String,Object> results(@PathVariable UUID id){return flow.snapshot(flow.get(id));}
     @PostMapping("/{id}/resume") public void resume(@PathVariable UUID id){flow.resume(id);}
+    @PostMapping("/{id}/recheck-etsy-quota") public void recheckEtsyQuota(@PathVariable UUID id) throws Exception {flow.recheckEtsyQuota(id);}
     @PostMapping("/{id}/review-briefs") public void reviewBriefs(@PathVariable UUID id,@RequestHeader("Idempotency-Key") String key){flow.reviewBriefs(id,key);}
     @PostMapping("/{id}/approve-trend") public void approve(@PathVariable UUID id){flow.approve(id);}
     @PostMapping("/{id}/dismiss-trend") public void dismiss(@PathVariable UUID id){flow.dismiss(id);}
