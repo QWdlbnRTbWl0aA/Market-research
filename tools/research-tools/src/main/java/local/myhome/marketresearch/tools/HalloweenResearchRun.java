@@ -29,7 +29,7 @@ final class HalloweenResearchRun {
         try(var service=new ServiceProcess(root,"analysis-service",temporary,ServiceProcess.freePort(),
                 Map.of("spring.datasource.url","jdbc:h2:mem:halloween-business"))) {
             var analysis=RestClient.create(service.base().toString());
-            return ledger.locked(100,20,budget -> {
+            return ledger.locked(QuotaLedger.DAILY_REQUEST_LIMIT,20,budget -> {
                 int before=budget.priorAttempts();
                 try {
                     etsy.get("/openapi-ping",budget,true);

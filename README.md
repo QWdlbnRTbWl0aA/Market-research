@@ -117,6 +117,12 @@ exhaustion and allows downstream completion and archival. Provider failures and 
 separate visible stops; this does not increase any provider spending or request allowance.
 
 An Etsy search-quota wait does not delay business cohorts that already have sufficient saved evidence.
+All Etsy workflows default to a shared **4,500-request rolling 24-hour ceiling**, including quota probes,
+listing searches, shop profiles and reviews. The ledger preserves prior attempts across runs and processes;
+the existing request throttle and provider-header/Retry-After checks remain authoritative too. Smaller
+per-run sample/request bounds remain separate. Configurations above 4,500 are rejected. After changing
+policy, `POST /v1/discoveries/{id}/recheck-etsy-quota` re-evaluates the saved wait without sending provider
+requests, clearing usage history or retrying model jobs; an actual provider cooldown is still respected.
 Only a cohort that actually needs a new shop/review request inherits the Etsy retry time. That wait is
 persisted on the cohort; idle workers do not poll or write it. Scheduler projections migrate once on
 upgrade without changing source data, processed IDs, business conclusions or provider ledgers.

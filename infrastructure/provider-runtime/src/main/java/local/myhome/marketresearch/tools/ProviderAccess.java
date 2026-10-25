@@ -40,11 +40,18 @@ public class ProviderAccess {
         var gateway=new EtsyGateway(ProviderHttp.client("https://openapi.etsy.com/v3/application",env),json,
             ()->EtsyCredentials.load(path("research.tools.credentials-file"),env));
         var ledger=new QuotaLedger(root.resolve("data/etsy-discovery"),json,System::currentTimeMillis,Thread::sleep);
-        return ledger.locked(env.getProperty("research.runtime.etsy-daily-cap",Integer.class,400),2,b->{
+        return ledger.locked(env.getProperty("research.runtime.etsy-daily-cap",Integer.class,QuotaLedger.DAILY_REQUEST_LIMIT),2,b->{
             // Recheck provider allowance before each small operation; all attempts share the existing ledger.
             gateway.get("/openapi-ping",b,true);
             return gateway.get(path,b,false);
         });
+    }
+    /** Re-evaluate a persisted Etsy wait after a policy change without issuing a request or resetting history. */
+    public long etsyRetryAt() throws Exception {
+        var ledger=new QuotaLedger(root.resolve("data/etsy-discovery"),json,System::currentTimeMillis,Thread::sleep);
+        try {
+            return ledger.locked(env.getProperty("research.runtime.etsy-daily-cap",Integer.class,QuotaLedger.DAILY_REQUEST_LIMIT),2,b->0L);
+        } catch(ProviderDeferred waiting) {return waiting.retryAt();}
     }
     public Map<String,Object> reason(String purpose,String instruction,Object evidence) throws Exception {
         if(!env.getProperty("research.runtime.live-enabled",Boolean.class,false))

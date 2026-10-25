@@ -19,7 +19,7 @@ public final class EtsyResearch {
         if (Files.exists(destination.resolve("input.json")))
             throw new ToolFailure("A cohort already exists; replay it instead of recollecting.");
         PrivateJson.directory(destination);
-        return ledger.locked(30,15,budget -> {
+        return ledger.locked(QuotaLedger.DAILY_REQUEST_LIMIT,15,budget -> {
             int prior = budget.priorAttempts();
             long start = System.nanoTime();
             var quotaResponse = gateway.get("/openapi-ping",budget,true);
@@ -32,7 +32,7 @@ public final class EtsyResearch {
             manifest.put("started_at",Instant.now().toString());
             manifest.put("before_search_quota",budget.quota());
             manifest.put("prior_local_24h_attempts",prior);
-            manifest.put("rolling_local_cap",30); manifest.put("max_new_requests",15);
+            manifest.put("rolling_local_cap",QuotaLedger.DAILY_REQUEST_LIMIT); manifest.put("max_new_requests",15);
             manifest.put("selection","ranked convenience sample, not a demand estimate");
             Map<Long,Map<?,?>> unique = new LinkedHashMap<>();
             List<Map<String,Object>> pages = new ArrayList<>();
@@ -69,7 +69,7 @@ public final class EtsyResearch {
 
     public Map<String,Object> discover(Path destination) throws Exception {
         PrivateJson.directory(destination);
-        return ledger.locked(6,5,budget -> {
+        return ledger.locked(QuotaLedger.DAILY_REQUEST_LIMIT,5,budget -> {
             PrivateJson.write(destination.resolve("quota-probe.json"),gateway.get("/openapi-ping",budget,true),json);
             List<Map<String,Object>> observations = new ArrayList<>();
             observations.add(Map.of("operation","quota-probe","quota",budget.quota()));

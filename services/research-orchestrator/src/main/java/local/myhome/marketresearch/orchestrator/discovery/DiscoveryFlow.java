@@ -32,6 +32,7 @@ public class DiscoveryFlow {
         ChildJobStopped(String status) { this.status = status; }
     }
     private final DiscoveryStore store;
+    private final ProviderAccess providers;
     private final DiscoveryNotices notices;
     private final RestClient analysis, content;
     private final DiscoverySearch search;
@@ -44,6 +45,7 @@ public class DiscoveryFlow {
 
     public DiscoveryFlow(DiscoveryStore store, DiscoveryNotices notices, ObjectMapper json, Environment settings, ProviderAccess provider) {
         this.store = store;
+        this.providers = provider;
         this.notices = notices;
         workersEnabled = settings.getProperty("research.discovery.workers-enabled",Boolean.class,true);
         analysis = client(settings.getProperty("market-research.services.analysis-base-url", "http://127.0.0.1:8082"));
@@ -212,6 +214,18 @@ public class DiscoveryFlow {
             state.retryAt.clear();
             state.retryCounts.clear();
             state.workerErrors.clear();
+        });
+    }
+    public void recheckEtsyQuota(UUID id) throws Exception {
+        long retryAt = providers.etsyRetryAt();
+        mutate(id, state -> {
+            if (!"ACTIVE".equals(state.status)) throw new ResponseStatusException(HttpStatus.CONFLICT);
+            long previous = state.nextSearchAttempt;
+            state.nextSearchAttempt = retryAt;
+            for (var batch : state.batches)
+                if (batch.request == null && batch.nextAttemptAt == previous) batch.nextAttemptAt = retryAt;
+            if (retryAt > 0) state.error = "KNOWN_QUOTA_WAIT";
+            else if ("KNOWN_QUOTA_WAIT".equals(state.error)) state.error = null;
         });
     }
     public void approve(UUID id) {
