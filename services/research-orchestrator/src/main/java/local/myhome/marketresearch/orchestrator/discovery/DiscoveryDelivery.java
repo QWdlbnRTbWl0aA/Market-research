@@ -109,6 +109,7 @@ final class DiscoveryDelivery {
         result.put("query", state.query);
         result.put("searchStatus", state.searchStatus);
         result.put("workerErrors", state.workerErrors);
+        result.put("coverage",SearchFrontier.coverage(state));
         result.put("samplingPageBudget", state.samplingPageBudget);
         result.put("protocol", Discovery.VERSION);
         result.put("finishedAt", state.finishedAt);

@@ -130,6 +130,31 @@ class DiscoveryFlowIT {
         for(int index=0;index<5;index++){flow.searchTick();flow.analysisTick();flow.deliveryTick();}
         verifyNoInteractions(provider);verify(store,never()).save(any());
     }
+    @Test void continuousPassesSearchDeferredSuggestionsThenDrainAndArchive() throws Exception {
+        when(provider.search(anyString(),eq(100),anyInt())).thenAnswer(call->{
+            String query=call.getArgument(0);
+            int id=query.equals("jewish printables")?1:query.contains("classroom")?1000:2000;
+            return Map.of("count",1,"results",List.of(row(id,true)));
+        });
+        when(provider.shop(anyString())).thenReturn(Map.of("shop_id",11,"transaction_sold_count",100));
+        String url="http://127.0.0.1:"+server.getAddress().getPort();
+        var env=new org.springframework.mock.env.MockEnvironment().withProperty("research.discovery.max-queries","2")
+            .withProperty("research.discovery.max-shop-review-requests","0")
+            .withProperty("research.discovery.max-listing-review-requests","0");
+        for(String name:List.of("analysis","content","archive"))env.withProperty("market-research.services."+name+"-base-url",url);
+        var continuous=new DiscoveryFlow(store,notices,JSON,env,provider);
+        var run=continuous.start("continuous-passes","Jewish printables");
+        for(int i=0;i<100&&!continuous.get(run.id).status.equals("WATCHING");i++) {
+            continuous.searchTick();continuous.analysisTick();continuous.deliveryTick();
+        }
+        var done=continuous.get(run.id);
+        assertEquals("WATCHING",done.status,"error="+done.error);
+        assertEquals("EXHAUSTED",done.searchStatus);assertEquals(3,done.queries.size());
+        assertEquals(2,done.searchPass);assertEquals(3,done.processed.size());
+        assertEquals(done.assessments.size(),done.handoffs.size(),"Fixture proposes one opportunity per cohort");
+        assertTrue(done.handoffs.stream().allMatch(handoff->"SUCCEEDED".equals(handoff.status)));assertTrue(done.archived);
+        verify(provider,times(3)).search(anyString(),eq(100),eq(0));
+    }
     @Test void completedBriefCanBeExplicitlyRevalidatedBeforeButNotAfterArchival() {
         var state=flow.start("review-briefs","Synthetic printable intent");
         state.searchStatus="EXHAUSTED";state.queries.getFirst().status="DONE";
@@ -252,7 +277,7 @@ class DiscoveryFlowIT {
         var migrated=new DiscoveryStore(db,JSON);
         assertTrue(migrated.ready("ANALYSIS").contains(run.id));assertFalse(migrated.ready("SEARCH").contains(run.id));
         assertEquals(expected,JSON.writeValueAsString(migrated.get(run.id)),"Only scheduling projections change");
-        assertEquals(3,db.queryForObject("SELECT projection_version FROM discoveries WHERE id=?",Integer.class,run.id.toString()));
+        assertEquals(4,db.queryForObject("SELECT projection_version FROM discoveries WHERE id=?",Integer.class,run.id.toString()));
         var secondRestart=new DiscoveryStore(db,JSON);assertEquals(expected,JSON.writeValueAsString(secondRestart.get(run.id)));
     }
     @Test void interruptedSearchIsBlockedOnRestartAndCancellationRemainsAvailable() {
@@ -300,6 +325,7 @@ class DiscoveryFlowIT {
     DiscoveryFlow limitedExpansion(String limit, String value) {
         String url="http://127.0.0.1:"+server.getAddress().getPort();
         var env=new org.springframework.mock.env.MockEnvironment().withProperty(limit,value)
+            .withProperty("research.discovery.continuous-expansion-enabled","false")
             .withProperty("research.discovery.batch-size","100").withProperty("research.discovery.max-shops","0")
             .withProperty("research.discovery.max-listing-review-requests","0").withProperty("research.discovery.max-shop-review-requests","0");
         for(String name:List.of("analysis","content","archive"))env.withProperty("market-research.services."+name+"-base-url",url);
