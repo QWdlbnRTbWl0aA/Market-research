@@ -18,3 +18,10 @@ Full `mvn verify` passed, including 19 workflow integration tests. Regression co
 capacity with 400 preserved attempts, refusal when a probe-plus-request cannot fit the 4,500 ceiling,
 rejection of higher settings, retained provider waits, untouched model jobs and preserved source state.
 Private quota/configuration/research snapshots are retained for operational integrity checks.
+
+Deployment: the live private configuration is 4,500 and the orchestrator runs a tested immutable artifact.
+The quota-recheck action cleared the obsolete wait with all original listing identities, accepted query
+phrases, completed briefs and unexpired request timestamps verified preserved. No usage counter was reset.
+On waking, the final accepted branch met its existing marginal-value stopping condition, so the frontier
+became BOUNDED_COMPLETE without an extra Etsy call. The remaining saved-evidence analysis is eligible to
+drain normally. This is bounded coverage, not a claim of complete market enumeration.
