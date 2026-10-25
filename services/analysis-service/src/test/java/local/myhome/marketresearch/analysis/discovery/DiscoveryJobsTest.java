@@ -55,6 +55,8 @@ class DiscoveryJobsTest {
         when(provider.reason(anyString(),anyString(),any())).thenReturn(report());
         jobs.resume(job.id());jobs.tick();jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
         assertEquals(3,((List<?>)jobs.evidence(job.id()).get("outputs")).size(),"Rejected output survives explicit retry");
+        var retainedInputs=(Map<?,?>)jobs.evidence(job.id()).get("calls");
+        assertEquals(1,((List<?>)retainedInputs.get("attemptHistory")).size(),"Original provider input survives corrective retry");
         var instructions=org.mockito.ArgumentCaptor.forClass(String.class);
         verify(provider,times(2)).reason(eq("discovery-business"),instructions.capture(),any());
         assertFalse(instructions.getAllValues().getFirst().contains("RECOVERY:"));

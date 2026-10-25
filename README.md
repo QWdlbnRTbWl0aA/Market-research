@@ -124,6 +124,10 @@ Retry-After. Accounted validation failures receive one corrective retry; uncerta
 require explicit recovery. `WAITING_RETRY` retains phase, draft and attempt history across restarts.
 Safe diagnostics retain HTTP status, code, field, response shape and request ID, excluding provider text.
 Known quota-reset waits resume automatically; no reset time is invented for an unknown account limit.
+Business cohorts include shop/review records connected to their listings, rather than all prior search
+evidence. Prior operating notes and summaries are bounded previews; opportunity identities, buyer needs,
+contents, differentiation and source IDs stay intact. Original requests and canonical records remain
+available, and replaced provider inputs are retained in the job's `calls.attemptHistory`.
 The deployed operational SMTP supervisor sends normal progress reports hourly; attention and lifecycle
 events may notify immediately. Its minute health timer and delivery history are independent of that interval.
 

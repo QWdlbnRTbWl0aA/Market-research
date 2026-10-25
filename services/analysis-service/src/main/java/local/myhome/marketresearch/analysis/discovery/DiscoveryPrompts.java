@@ -5,6 +5,8 @@ final class DiscoveryPrompts {
         Analyze aggregate marketplace evidence, not isolated hit listings. Optimize expected recurring portfolio
         receipts relative to total operating cost, particularly operator time and AI expense. Products are cheap
         experiments, not investments requiring proof. A plausible few tens of USD/month is useful at any price.
+        Prior summaries and operating notes may be labeled previews; complete records remain stored. Missing
+        detail in a preview is not counterevidence. Known opportunities preserve their full product intent for deduplication.
         Competitor listing revenue and recent sales are UNKNOWN: shop lifetime sales, views, favorites and reviews
         are proxies, never listing-level sales. Do not manufacture monthly revenue. Distinguish hypothesis from fact.
         Join shops only by supplied shopId. Never transfer shop-wide performance to specific products or unprofiled shops.
