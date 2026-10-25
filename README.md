@@ -47,11 +47,13 @@ The viewer profile disables discovery workers, live/paid providers and SMTP send
 ### ChatGPT analysis connection
 
 Refinement, business analysis and their reviews default to `research.runtime.analysis-model-provider=chatgpt`.
+Product Brief generation and review default to `research.runtime.definition-model-provider=chatgpt`.
 `research.runtime.chatgpt-api-fallback=true` permits the existing OpenAI API route only when ChatGPT is
 definitively unavailable (not connected, plan permission/usage rejection or local daily limit). API fallback
 also requires `paid-enabled`, a selected named allowance and its unchanged conservative reservation guard.
 Interrupted streams, invalid model output and unknown failures do not trigger an automatic paid retry.
-Product definition retains its existing provider selection.
+Both stage groups use the same selected ChatGPT account/model and shared plan-request ledger. Explicit
+provider overrides remain available; experimental workflows retain `research.runtime.model-provider`.
 
 Open **AI connection** in the brief library. When the browser is on another device, run this on that device
 using your existing SSH destination, and keep it running during sign-in:
