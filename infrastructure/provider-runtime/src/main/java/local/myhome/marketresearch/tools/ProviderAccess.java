@@ -54,6 +54,7 @@ public class ProviderAccess {
         } catch(ProviderDeferred waiting) {return waiting.retryAt();}
     }
     public Map<String,Object> reason(String purpose,String instruction,Object evidence) throws Exception {
+        lastUsage.remove();
         if(!env.getProperty("research.runtime.live-enabled",Boolean.class,false))
             throw new ToolFailure("Live providers disabled");
         var settings=new ModelSettings(path("research.models.gemini-credentials-file"),
@@ -80,6 +81,7 @@ public class ProviderAccess {
         var selectedUsage=new LinkedHashMap<String,Object>();
         try {
             if("chatgpt".equals(route)) {
+                long primaryRetryAt=0;
                 var chatgpt=new ChatGptModels(ProviderHttp.client("https://api.openai.com/v1",env,
                     env.getProperty("research.models.chatgpt-read-timeout-ms",Integer.class,300_000)),
                     new ChatGptSession(env,json),json,root,env.getProperty("research.models.chatgpt-daily-limit",Integer.class,100));
@@ -87,8 +89,12 @@ public class ProviderAccess {
                     var answer=chatgpt.ask(purpose+"#"+invocation,instruction+"\nResearch observation time (UTC): "+observationTime,evidence);
                     succeeded=true;return answer;
                 } catch(ChatGptUnavailable unavailable) {
+                    primaryRetryAt=unavailable.retryAt();
                     if(!env.getProperty("research.runtime.chatgpt-api-fallback",Boolean.class,true)
-                            ||!env.getProperty("research.runtime.paid-enabled",Boolean.class,false))throw unavailable;
+                            ||!env.getProperty("research.runtime.paid-enabled",Boolean.class,false)) {
+                        if(primaryRetryAt>System.currentTimeMillis())throw new ProviderDeferred(primaryRetryAt);
+                        throw unavailable;
+                    }
                     if(allowance==null||allowance.isBlank())throw new ToolFailure("API fallback requires an explicitly selected allowance");
                     selectedUsage.put("fallbackReason",unavailable.reason);
                 } finally {
@@ -100,6 +106,11 @@ public class ProviderAccess {
                     var result=models.askOn("openai",purpose+"#"+invocation+"-fallback",
                         instruction+"\nResearch observation time (UTC): "+observationTime,evidence,BigDecimal.ONE,750_000,allowance);
                     succeeded=true;return result;
+                } catch(ToolFailure fallbackFailure) {
+                    // A known primary reset remains recoverable if the guarded API route sent nothing.
+                    if(primaryRetryAt>System.currentTimeMillis()&&!Boolean.TRUE.equals(models.usage().get("requestSent")))
+                        throw new ProviderDeferred(primaryRetryAt);
+                    throw fallbackFailure;
                 } finally {
                     var fallbackUsage=new LinkedHashMap<String,Object>();fallbackUsage.put("provider","openai");fallbackUsage.put("requestSent",false);
                     fallbackUsage.putAll(models.usage());selectedUsage.putAll(fallbackUsage);attempts.add(fallbackUsage);

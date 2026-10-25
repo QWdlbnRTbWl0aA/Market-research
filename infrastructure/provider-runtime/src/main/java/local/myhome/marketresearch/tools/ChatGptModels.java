@@ -8,6 +8,8 @@ import java.time.*;
 import java.util.*;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.http.HttpHeaders;
 import tools.jackson.databind.ObjectMapper;
 
 /** Supported SIWC Responses transport. Explicit quota/auth rejection permits fallback; uncertain I/O does not. */
@@ -45,7 +47,8 @@ final class ChatGptModels {
             List<Map<String,Object>> calls=new ArrayList<>((List<Map<String,Object>>)saved.getOrDefault("calls",List.of()));
             String today=LocalDate.now(ZoneOffset.UTC).toString();
             long used=calls.stream().filter(call->call.get("at").toString().startsWith(today)).count();
-            if(used>=dailyLimit)throw new ChatGptUnavailable("LOCAL_DAILY_LIMIT");
+            if(used>=dailyLimit)throw new ChatGptUnavailable("LOCAL_DAILY_LIMIT",0,
+                LocalDate.now(ZoneOffset.UTC).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),"local_limit","");
             var event=new LinkedHashMap<String,Object>();event.put("purpose",purpose);event.put("at",Instant.now().toString());
             event.put("model",model);event.put("status","REQUEST_STARTED_OR_UNCERTAIN");calls.add(event);saved.put("calls",calls);
             PrivateJson.write(ledger,saved,json);
@@ -57,8 +60,7 @@ final class ChatGptModels {
                 var result=api.post().uri("/responses").header("Authorization","Bearer "+access).contentType(MediaType.APPLICATION_JSON)
                     .body(body).exchange((request,response)-> {
                         int status=response.getStatusCode().value();
-                        if(Set.of(401,403,429).contains(status))throw new ChatGptUnavailable("HTTP_"+status);
-                        if(!response.getStatusCode().is2xxSuccessful())throw new ToolFailure("ChatGPT request rejected; no automatic fallback");
+                        if(!response.getStatusCode().is2xxSuccessful())throw httpFailure(status,response.getHeaders(),response.getBody());
                         return consume(response.getBody());
                     });
                 var reported=result.get("usage") instanceof Map<?,?> values?values:Map.of();
@@ -81,12 +83,52 @@ final class ChatGptModels {
                 String answer=answer(result);
                 try{return json.readValue(answer,Map.class);}catch(RuntimeException malformed){throw new MalformedModelResponse(answer);}
             } catch(ChatGptUnavailable unavailable) {
-                event.put("status","DEFINITIVELY_UNAVAILABLE");event.put("reason",unavailable.reason);PrivateJson.write(ledger,saved,json);throw unavailable;
+                recordFailure(unavailable);
+                event.put("status","DEFINITIVELY_UNAVAILABLE");event.put("reason",unavailable.reason);
+                event.put("diagnostic",unavailable.diagnostic());event.put("usage",usage);PrivateJson.write(ledger,saved,json);throw unavailable;
+            } catch(ProviderFailure failure) {
+                recordFailure(failure);
+                if(!Set.of("STREAM_INTERRUPTED","TRANSPORT_INTERRUPTED").contains(failure.code()))event.put("status","FAILED_CONFIRMED");
+                event.put("diagnostic",failure.diagnostic());
+                event.put("usage",usage);PrivateJson.write(ledger,saved,json);throw failure;
+            } catch(ResourceAccessException transport) {
+                var failure=new ProviderFailure("TRANSPORT_INTERRUPTED",0,false,0,"","transport","");recordFailure(failure);
+                event.put("diagnostic",failure.diagnostic());event.put("usage",usage);PrivateJson.write(ledger,saved,json);throw failure;
             } catch(Exception uncertain) {
                 // Completed-but-invalid JSON retains settled usage; an interrupted stream remains explicitly uncertain.
                 event.put("usage",usage);PrivateJson.write(ledger,saved,json);throw uncertain;
             }
         } catch(OverlappingFileLockException busy) {throw new ProviderBusy();}
+    }
+    private void recordFailure(ProviderFailure failure) {
+        var record=new LinkedHashMap<>(usage);record.put("failure",failure.diagnostic());usage=record;
+    }
+    @SuppressWarnings("unchecked") private ProviderFailure httpFailure(int status,HttpHeaders headers,InputStream input) throws IOException {
+        String code="HTTP_"+status,parameter="",shape="non_json";
+        try {
+            Object body=json.readValue(new String(input.readNBytes(32768),StandardCharsets.UTF_8),Object.class);
+            if(body instanceof Map<?,?> map) {
+                shape=map.get("error") instanceof Map<?,?>?"error_object":map.containsKey("detail")?"detail_object":"object";
+                if(map.get("error") instanceof Map<?,?> error) {
+                    String candidate=Objects.toString(error.get("code"),"");
+                    if(candidate.matches("[A-Za-z0-9_]{1,100}"))code=candidate;
+                    String field=Objects.toString(error.get("param"),"");
+                    if(field.matches("[A-Za-z0-9_.\\[\\]]{1,160}"))parameter=field;
+                }
+            }
+        } catch(RuntimeException|IOException ignored){/* Provider diagnostic text is never retained or printed. */}
+        String requestId=Objects.toString(headers.getFirst("x-request-id"),"");
+        if(!requestId.matches("[A-Za-z0-9_-]{1,128}"))requestId="";
+        long retryAt=retryAt(headers.getFirst("Retry-After"));
+        if(Set.of(401,403,429).contains(status)||code.equals("subscription_sharing_usage_unavailable"))
+            return new ChatGptUnavailable(code,status,retryAt,shape,requestId);
+        return new ProviderFailure(code,status,Set.of(408,409,500,502,503,504).contains(status),retryAt,parameter,shape,requestId);
+    }
+    private long retryAt(String header) {
+        if(header==null)return 0;
+        try {return Math.addExact(System.currentTimeMillis(),Math.multiplyExact(Math.max(1,Long.parseLong(header)),1000));}
+        catch(ArithmeticException overflow){return Long.MAX_VALUE;}
+        catch(NumberFormatException invalid){try{return ZonedDateTime.parse(header,java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli();}catch(RuntimeException ignored){return 0;}}
     }
     @SuppressWarnings("unchecked") private Map<String,Object> consume(InputStream input) throws IOException {
         var reader=new BufferedReader(new InputStreamReader(input,StandardCharsets.UTF_8));
@@ -127,12 +169,13 @@ final class ChatGptModels {
                     String code=source instanceof Map<?,?> error?Objects.toString(error.get("code"),""):Objects.toString(event.get("code"),"");
                     if(Set.of("subscription_sharing_usage_limit_exceeded","subscription_sharing_usage_unavailable").contains(code))
                         throw new ChatGptUnavailable(code);
-                    throw new ToolFailure("ChatGPT returned a failed response; no automatic fallback");
+                    String safe=code.matches("[A-Za-z0-9_]{1,100}")?code:"RESPONSE_FAILED";
+                    throw new ProviderFailure(safe,200,"server_error".equals(safe),0,"","response.failed","");
                 }
-                if("response.incomplete".equals(type))throw new ToolFailure("ChatGPT response incomplete; no automatic fallback");
+                if("response.incomplete".equals(type))throw new ProviderFailure("RESPONSE_INCOMPLETE",200,false,0,"","response.incomplete","");
             }
         }
-        throw new ToolFailure("ChatGPT stream interrupted before confirmed completion; no automatic fallback");
+        throw new ProviderFailure("STREAM_INTERRUPTED",200,false,0,"","stream","");
     }
     private boolean hasText(Map<String,Object> response) {return !text(response).isEmpty();}
     private boolean hasRefusal(Map<String,Object> response) {

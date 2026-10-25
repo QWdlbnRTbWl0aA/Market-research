@@ -97,6 +97,21 @@ class DiscoveryJobsTest {
         jobs.tick();assertEquals("ACCEPTED",jobs.get(job.id()).status());
         jobs.tick();jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
     }
+    @Test void transientRetrySurvivesRestartAndKeepsTheReviewDraft() throws Exception {
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(report())
+            .thenThrow(new ProviderFailure("HTTP_503",503,true,System.currentTimeMillis()+60000,"","detail_object",""))
+            .thenReturn(report());
+        var job=jobs.submit("transient-review",task(List.of(listing(1,"Printable",1))));
+        jobs.tick();jobs.tick();
+        assertEquals("WAITING_RETRY",jobs.get(job.id()).status());
+        var draft=jobs.evidence(job.id()).get("draft");assertNotNull(draft);
+        jobs=new DiscoveryJobs(db,json,provider,tx,"test-v1");jobs.tick();
+        verify(provider,times(2)).reason(anyString(),anyString(),any());
+        assertEquals(draft,jobs.evidence(job.id()).get("draft"));
+        db.update("UPDATE discovery_jobs SET next_attempt=0 WHERE id=?",job.id().toString());
+        jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
+        verify(provider,times(1)).reason(eq("discovery-business"),anyString(),any());
+    }
     @Test void refinementIsBoundedAndVersionChangesInvalidateCache() throws Exception {
         when(provider.reason(anyString(),anyString(),any())).thenReturn(json.convertValue(new Refinement(
             List.of("Jewish holiday games"),List.of("holiday classroom games"),"Focused intent"),Map.class));
