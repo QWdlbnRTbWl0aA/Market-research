@@ -66,7 +66,9 @@ public class ProviderAccess {
             ProviderHttp.client("https://generativelanguage.googleapis.com/v1beta",env),settings,json,root);
         String route=purpose.startsWith("discovery-")
             ? env.getProperty("research.runtime.analysis-model-provider","chatgpt")
-            : env.getProperty("research.runtime.model-provider","gemini");
+            : purpose.startsWith("product-definition")
+                ? env.getProperty("research.runtime.definition-model-provider","chatgpt")
+                : env.getProperty("research.runtime.model-provider","gemini");
         if(!env.getProperty("research.runtime.paid-enabled",Boolean.class,false)) {
             if("openai".equals(route))throw new ToolFailure("Paid calls are disabled");
             if(!"chatgpt".equals(route))route="gemini";
