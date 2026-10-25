@@ -128,6 +128,9 @@ Business cohorts include shop/review records connected to their listings, rather
 evidence. Prior operating notes and summaries are bounded previews; opportunity identities, buyer needs,
 contents, differentiation and source IDs stay intact. Original requests and canonical records remain
 available, and replaced provider inputs are retained in the job's `calls.attemptHistory`.
+Text previews preserve complete Unicode characters at length boundaries. Model adapters reject malformed
+Unicode before sending a request or reserving paid usage; replayed database text can hide a previously
+broken surrogate by replacing it, so regression checks also exercise preparation from original evidence.
 The deployed operational SMTP supervisor sends normal progress reports hourly; attention and lifecycle
 events may notify immediately. Its minute health timer and delivery history are independent of that interval.
 

@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
 import local.myhome.marketresearch.contracts.analysis.Discovery.Listing;
+import local.myhome.marketresearch.tools.UnicodeText;
 
 /** Preparation and coverage measurements, deliberately not business opportunity scoring. */
 public final class SearchPolicy {
@@ -26,7 +27,7 @@ public final class SearchPolicy {
         return new Listing(id,shop,clip(title,300),clip(Objects.toString(row.get("description"),""),2500),
             tags,price,currency,number(row.get("views")),number(row.get("num_favorers")),number(row.get("original_creation_timestamp")));
     }
-    static String clip(String s,int n){return s.substring(0,Math.min(n,s.length()));}
+    static String clip(String s,int n){return UnicodeText.prefix(s,n);}
     static String id(Object o){return o instanceof Number n&&n.longValue()>0?Long.toString(n.longValue()):null;}
     static long number(Object o){return o instanceof Number n?Math.max(0,n.longValue()):0;}
     public static Map<String,Object> snapshot(int count,List<Listing> listings,int returned) {

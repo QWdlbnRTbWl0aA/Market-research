@@ -41,6 +41,19 @@ class DiscoveryJobsTest {
         jobs.tick();jobs.tick();assertEquals(1,jobs.get(changed.id()).newListings());
         verify(provider,times(4)).reason(anyString(),anyString(),any());
     }
+    @Test void emojiAtDescriptionBoundaryCannotCorruptModelInputOrOriginalEvidence() throws Exception {
+        String description="A".repeat(159)+"\uD83C\uDF83"+" Original full evidence";
+        var listing=new Listing("1","11","Printable",description,List.of(),BigDecimal.ONE,"USD",1,1,1);
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(report());
+        var job=jobs.submit("unicode-boundary",task(List.of(listing)));jobs.tick();jobs.tick();
+        assertEquals("SUCCEEDED",jobs.get(job.id()).status());
+        var input=org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(provider).reason(eq("discovery-business"),anyString(),input.capture());
+        var prepared=((Task)input.getValue()).listings().getFirst().description();
+        assertEquals("A".repeat(159),prepared);
+        assertTrue(java.nio.charset.StandardCharsets.UTF_8.newEncoder().canEncode(prepared));
+        assertEquals(description,((Task)jobs.evidence(job.id()).get("request")).listings().getFirst().description());
+    }
     @Test void schemaAndCitationFailuresBlockWithoutCachingOrAutomaticRebilling() throws Exception {
         var bad=new LinkedHashMap<>(report());bad.put("products",List.of(new Product("Unknown reference","Buyer","Use",List.of("4 sheets"),"Original",BigDecimal.ONE,
             "Hypothesis","Automatic","Unknown","Season",List.of("9999"),List.of("Unknown"),"LOW","Explanation","Stop rule")));

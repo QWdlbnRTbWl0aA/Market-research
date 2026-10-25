@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import local.myhome.marketresearch.contracts.analysis.Discovery.*;
+import local.myhome.marketresearch.tools.UnicodeText;
 
 /** Bounded previews of prior reasoning; source requests and canonical opportunities stay intact. */
 final class BusinessContext {
@@ -43,6 +44,6 @@ final class BusinessContext {
 
     static String preview(String value,int limit) {
         if(value==null||value.length()<=limit)return value;
-        return value.substring(0,limit)+" [preview; full record retained]";
+        return UnicodeText.prefix(value,limit)+" [preview; full record retained]";
     }
 }
