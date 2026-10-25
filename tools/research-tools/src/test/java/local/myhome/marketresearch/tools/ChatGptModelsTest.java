@@ -52,6 +52,25 @@ class ChatGptModelsTest {
         assertEquals("subscription_sharing_usage_limit_exceeded",failure.reason);
         assertEquals("DEFINITIVELY_UNAVAILABLE",((Map<?,?>)calls().getFirst()).get("status"));server.verify();
     }
+    @Test void rejectedRequestsRetainSafeDiagnosticsWithoutProviderText() throws Exception {
+        server.expect(requestTo("https://api.invalid/v1/responses")).andRespond(withStatus(org.springframework.http.HttpStatus.BAD_REQUEST)
+            .contentType(MediaType.APPLICATION_JSON).header("x-request-id","req_fixture")
+            .body("{\"error\":{\"code\":\"invalid_request\",\"param\":\"text.format\",\"message\":\"secret-provider-details\"}}"));
+        var failure=assertThrows(ProviderFailure.class,()->models.ask("discovery-business","JSON",Map.of()));
+        assertFalse(failure.retryable());assertFalse(failure instanceof ChatGptUnavailable);
+        assertEquals("text.format",failure.diagnostic().get("parameter"));
+        assertEquals("req_fixture",failure.diagnostic().get("requestId"));
+        assertFalse(Files.readString(root.resolve("data/provider-ledgers/chatgpt/usage.json")).contains("secret-provider-details"));
+        server.verify();
+    }
+    @Test void temporaryAdmissionFailuresHonorRetryAfterAndDetailShape() throws Exception {
+        server.expect(requestTo("https://api.invalid/v1/responses")).andRespond(withStatus(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE)
+            .contentType(MediaType.APPLICATION_JSON).header("Retry-After","60").body("{\"detail\":\"private routing details\"}"));
+        long before=System.currentTimeMillis();
+        var failure=assertThrows(ProviderFailure.class,()->models.ask("discovery-business","JSON",Map.of()));
+        assertTrue(failure.retryable());assertTrue(failure.retryAt()>=before+60000);
+        assertEquals("detail_object",failure.diagnostic().get("bodyShape"));server.verify();
+    }
     @Test void completedMalformedJsonRetainsSettledUsageAndDoesNotPermitFallback() throws Exception {
         server.expect(requestTo("https://api.invalid/v1/responses")).andRespond(withSuccess(completed("not JSON"),MediaType.TEXT_EVENT_STREAM));
         assertThrows(MalformedModelResponse.class,()->models.ask("discovery-business","JSON",Map.of()));

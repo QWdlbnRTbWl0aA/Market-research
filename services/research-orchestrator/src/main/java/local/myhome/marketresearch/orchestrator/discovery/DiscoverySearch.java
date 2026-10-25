@@ -12,6 +12,7 @@ final class DiscoverySearch {
     private final ProviderAccess provider;
     private final RestClient analysis;
     private final int maxPages, maxQueries, maxDepth;
+    private final boolean continuousExpansion;
 
     DiscoverySearch(DiscoveryStore store, ProviderAccess provider, RestClient analysis, Environment settings) {
         this.store = store;
@@ -20,6 +21,7 @@ final class DiscoverySearch {
         maxPages = settings.getProperty("research.discovery.max-pages-per-query", Integer.class, 20);
         maxQueries = settings.getProperty("research.discovery.max-queries", Integer.class, 24);
         maxDepth = settings.getProperty("research.discovery.max-depth", Integer.class, 5);
+        continuousExpansion=settings.getProperty("research.discovery.continuous-expansion-enabled",Boolean.class,true);
         if (maxPages < 1 || maxPages > 120 || maxQueries < 1 || maxDepth < 0) throw new IllegalArgumentException("Invalid search limits");
     }
 
@@ -40,13 +42,17 @@ final class DiscoverySearch {
             state.searchStatus = "SAMPLING_COMPLETE";
             return true;
         }
+        boolean fetchCapacity=SearchFrontier.pendingListings(state)<state.pendingListingLimit;
         var pending = state.queries.stream().filter(branch -> !"DONE".equals(branch.status))
+            .filter(branch -> "REFINING".equals(branch.status)||branch.stableAnalyses>=2
+                ||branch.pages>=maxPages||fetchCapacity&&state.nextSearchAttempt<=System.currentTimeMillis())
             .filter(branch -> branch.nextAttemptAt<=System.currentTimeMillis()||!"REFINING".equals(branch.status))
             .sorted(Comparator.comparingInt((DiscoveryState.Query branch) -> branch.pages >= maxPages ? 1 : 0)
                 .thenComparingInt(branch -> branch.pages).thenComparingInt(branch -> branch.depth)).findFirst();
         if (pending.isEmpty()) {
             if(state.queries.stream().anyMatch(branch->!"DONE".equals(branch.status)))return false;
-            state.searchStatus = state.queries.stream().anyMatch(query -> query.expansionStopReason != null)
+            if(continuousExpansion&&SearchFrontier.nextPass(state,maxQueries,maxDepth))return true;
+            state.searchStatus = state.queries.stream().anyMatch(query -> Set.of("QUERY_EXPANSION_LIMIT","DEPTH_EXPANSION_LIMIT").contains(Objects.toString(query.expansionStopReason,"")))
                 ? "BOUNDED_COMPLETE" : "EXHAUSTED";
             return true;
         }
@@ -63,6 +69,7 @@ final class DiscoverySearch {
             throw new DiscoveryFlow.LimitReached("PAGE_SAFETY_LIMIT");
         }
         if (state.nextSearchAttempt > System.currentTimeMillis()) return false;
+        if(SearchFrontier.pendingListings(state)>=state.pendingListingLimit)return false;
         branch.status = "FETCHING";
         store.save(state); // Crash boundary before a provider request, not an idle write.
         Map<String,Object> response;
@@ -116,6 +123,9 @@ final class DiscoverySearch {
 
     private boolean refine(DiscoveryState state, DiscoveryState.Query branch) {
         if (branch.refinementJob == null) {
+            if(continuousExpansion&&branch.novel==0&&branch.usable>0) {
+                branch.expansionStopReason="NO_NEW_EVIDENCE";finishRefinement(branch);return true;
+            }
             // Expansion capacity is independent of pagination and downstream analysis.
             // Do not purchase another refinement when none of its suggestions can be accepted.
             String limit = expansionLimit(state, branch);
@@ -125,6 +135,7 @@ final class DiscoverySearch {
                 return true;
             }
             if (branch.refinementRequest == null) {
+                if(branch.refinementUsableBase<0)branch.refinementUsableBase=branch.usable;
                 branch.refinementRequest = new Task("REFINE", state.query, branch.sample, List.of(),
                     state.queries.stream().map(value -> value.text).toList(), List.copyOf(state.families),
                     branch.text, List.of(), List.of());
@@ -148,8 +159,10 @@ final class DiscoverySearch {
         state.excluded.addAll(result.excludedListingIds());
         // A legacy cap failure may already have applied this result before blocking.
         // Recompute from the frozen first-page sample instead of subtracting twice on resume.
-        branch.usable = (int) branch.sample.stream().filter(listing -> branch.listingIds.contains(listing.id()))
-            .filter(listing -> !result.excludedListingIds().contains(listing.id())).count();
+        if(branch.refinementUsableBase<0)branch.refinementUsableBase=branch.pages<=1
+            ? (int)branch.sample.stream().filter(listing->branch.listingIds.contains(listing.id())).count():branch.usable;
+        branch.usable=Math.max(0,branch.refinementUsableBase-(int)result.excludedListingIds().stream().distinct()
+            .filter(branch.listingIds::contains).count());
         branch.successful = branch.usable > 0;
         int added = 0;
         for (String suggestion : result.queries()) {
@@ -173,9 +186,13 @@ final class DiscoverySearch {
     }
 
     private String expansionLimit(DiscoveryState state, DiscoveryState.Query branch) {
-        if (state.queries.size() >= maxQueries) return "QUERY_EXPANSION_LIMIT";
+        if (state.queries.size()-state.passQueryStart >= maxQueries) return "QUERY_EXPANSION_LIMIT";
         if (branch.depth >= maxDepth) return "DEPTH_EXPANSION_LIMIT";
         return null;
+    }
+    boolean continueFrontier(DiscoveryState state) {
+        if(!continuousExpansion)return false;
+        return SearchFrontier.nextPass(state,maxQueries,maxDepth);
     }
 
     private void finishRefinement(DiscoveryState.Query branch) {

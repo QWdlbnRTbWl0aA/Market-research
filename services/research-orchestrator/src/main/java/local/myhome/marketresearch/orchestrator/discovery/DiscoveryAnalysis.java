@@ -44,7 +44,7 @@ final class DiscoveryAnalysis {
         boolean pageBoundary=state.queries.stream().filter(branch->!"DONE".equals(branch.status)).allMatch(branch->branch.pages>=state.pageLimit);
         var remaining=state.listings.keySet().stream().filter(id->!state.processed.contains(id)&&!state.excluded.contains(id))
             .limit(state.analysisBatchSize).toList();
-        if(!remaining.isEmpty()&&(state.searchComplete()||pageBoundary)) {
+        if(!remaining.isEmpty()&&(remaining.size()>=state.analysisBatchSize||state.searchComplete()||pageBoundary)) {
             var batch=new DiscoveryState.Batch();
             var branches=state.queries.stream().filter(branch->branch.listingIds.containsAll(remaining)).toList();
             batch.branch=branches.size()==1?branches.getFirst().text:"RESIDUAL_COVERAGE";

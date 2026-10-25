@@ -45,6 +45,21 @@ class ProductJobsTest {
         verify(provider,times(1)).reason(anyString(),anyString(),any());
         assertThrows(ResponseStatusException.class,()->ProductJobs.validate(brief("activity.pdf",List.of("9")),request()));
     }
+    @Test void transientReviewRetryPreservesDraftAndWaitsAcrossRestart() throws Exception {
+        var answer=json.convertValue(brief("activity.pdf",List.of("1")),Map.class);
+        when(provider.reason(anyString(),anyString(),any())).thenReturn(answer)
+            .thenThrow(new ProviderFailure("HTTP_503",503,true,System.currentTimeMillis()+60000,"","detail_object",""))
+            .thenReturn(answer);
+        var job=jobs.submit("transient",request());jobs.tick();jobs.tick();
+        assertEquals("WAITING_RETRY",jobs.get(job.id()).status());
+        var draft=jobs.evidence(job.id()).get("draft");
+        jobs=new ProductJobs(db,json,provider);jobs.tick();
+        verify(provider,times(2)).reason(anyString(),anyString(),any());
+        assertEquals(draft,jobs.evidence(job.id()).get("draft"));
+        db.update("UPDATE product_definition_jobs SET next_attempt=0 WHERE id=?",job.id().toString());
+        jobs.tick();assertEquals("SUCCEEDED",jobs.get(job.id()).status());
+        verify(provider,times(1)).reason(eq("product-definition"),anyString(),any());
+    }
     @Test void rejectedBriefReviewCanBeRetriedWithoutRedefiningTheProduct() throws Exception {
         var valid=json.convertValue(brief("activity.pdf",List.of("1")),Map.class);
         var invalid=new LinkedHashMap<>(valid);invalid.put("intentPreserved",false);

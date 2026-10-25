@@ -108,13 +108,24 @@ continue. Paused workers consume no polling or persistence work. Explicit orches
 saved jobs and clears worker pauses, including when the investigation itself remains ACTIVE. Pending or
 paused analysis never counts as completed coverage and prevents final archival.
 
-Query-count and refinement-depth limits constrain search expansion only. Accepted phrases keep their page
-pointers and continue pagination; fetched listings continue through analysis and product definition.
-Each affected query exposes `expansionStopReason` and retains any returned but unaccepted `deferredQueries`.
-At an expansion cap, no new refinement job is purchased; already-submitted jobs are consumed normally.
-After the accepted frontier drains, `BOUNDED_COMPLETE` distinguishes limited coverage from natural market
-exhaustion and allows downstream completion and archival. Provider failures and page safety limits remain
-separate visible stops; this does not increase any provider spending or request allowance.
+The query-count limit bounds each search pass. With `research.discovery.continuous-expansion-enabled=true`
+(the default), a drained pass admits saved suggestions and revisits refinements deferred by that pass's
+capacity. Branch-local novelty and business-value stops still apply. Accepted phrases retain page pointers,
+source evidence and job identities; normalized phrases are admitted once. The status `coverage` object
+reports passes and outstanding expansion. `POST /v1/discoveries/{id}/continue-search` advances a legacy
+ACTIVE, unarchived investigation whose accepted frontier has drained; it does not clear worker errors.
+Refinement depth and page limits remain explicit safety boundaries, never evidence of market exhaustion.
+Disable continuous expansion to retain deliberately bounded investigations. A 2,000-pending-listing
+backlog pauses fetching while refinement, analysis and product definition can continue; fetching resumes
+as analysis drains it. None of these changes increases provider budgets.
+
+Confirmed transient ChatGPT failures receive at most two persisted retries per stage, respecting
+Retry-After. Accounted validation failures receive one corrective retry; uncertain interrupted requests
+require explicit recovery. `WAITING_RETRY` retains phase, draft and attempt history across restarts.
+Safe diagnostics retain HTTP status, code, field, response shape and request ID, excluding provider text.
+Known quota-reset waits resume automatically; no reset time is invented for an unknown account limit.
+The deployed operational SMTP supervisor sends normal progress reports hourly; attention and lifecycle
+events may notify immediately. Its minute health timer and delivery history are independent of that interval.
 
 An Etsy search-quota wait does not delay business cohorts that already have sufficient saved evidence.
 All Etsy workflows default to a shared **4,500-request rolling 24-hour ceiling**, including quota probes,

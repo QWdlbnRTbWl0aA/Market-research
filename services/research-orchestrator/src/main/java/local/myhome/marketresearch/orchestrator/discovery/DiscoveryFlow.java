@@ -228,6 +228,14 @@ public class DiscoveryFlow {
             else if ("KNOWN_QUOTA_WAIT".equals(state.error)) state.error = null;
         });
     }
+    public void continueSearch(UUID id) {
+        mutate(id,state->{
+            if(!"ACTIVE".equals(state.status)||state.archived||state.samplingPageBudget>0
+                    ||!Set.of("BOUNDED_COMPLETE","EXHAUSTED").contains(state.searchStatus))
+                throw new ResponseStatusException(HttpStatus.CONFLICT,"Continue an unarchived bounded discovery only");
+            if(!search.continueFrontier(state))throw new ResponseStatusException(HttpStatus.CONFLICT,"No valuable deferred expansion remains");
+        });
+    }
     public void approve(UUID id) {
         mutate(id, state -> {
             if (!"AWAITING_APPROVAL".equals(state.status))

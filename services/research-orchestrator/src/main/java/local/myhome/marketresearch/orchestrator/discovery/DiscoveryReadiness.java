@@ -31,8 +31,11 @@ final class DiscoveryReadiness {
                 .mapToLong(branch -> branch.nextAttemptAt).min().orElse(0);
         var branches=state.queries.stream().filter(branch->!"DONE".equals(branch.status)).toList();
         if(branches.isEmpty())return state.nextSearchAttempt;
-        return branches.stream().filter(branch->branch.stableAnalyses>=2||branch.pages<state.pageLimit||pending(state,branch).isEmpty())
-            .mapToLong(branch->Math.max(state.nextSearchAttempt,"REFINING".equals(branch.status)?branch.nextAttemptAt:0)).min().orElse(IDLE);
+        boolean capacity=SearchFrontier.pendingListings(state)<state.pendingListingLimit;
+        return branches.stream().filter(branch->branch.stableAnalyses>=2||"REFINING".equals(branch.status)
+                ||branch.pages>=state.pageLimit&&pending(state,branch).isEmpty()||capacity&&branch.pages<state.pageLimit)
+            .mapToLong(branch->"REFINING".equals(branch.status)?branch.nextAttemptAt:
+                branch.stableAnalyses>=2?0:state.nextSearchAttempt).min().orElse(IDLE);
     }
 
     private static long analysis(DiscoveryState state) {
@@ -43,7 +46,8 @@ final class DiscoveryReadiness {
         boolean eligible=state.queries.stream().anyMatch(branch->pending(state,branch).size()>=state.analysisBatchSize);
         boolean residual=state.listings.keySet().stream().anyMatch(id->!state.processed.contains(id)&&!state.excluded.contains(id));
         boolean pageBoundary=state.queries.stream().filter(branch->!"DONE".equals(branch.status)).allMatch(branch->branch.pages>=state.pageLimit);
-        return eligible||residual&&(state.searchComplete()||pageBoundary)?0:IDLE;
+        boolean fullMixedCohort=SearchFrontier.pendingListings(state)>=state.analysisBatchSize;
+        return eligible||fullMixedCohort||residual&&(state.searchComplete()||pageBoundary)?0:IDLE;
     }
 
     private static long delivery(DiscoveryState state) {

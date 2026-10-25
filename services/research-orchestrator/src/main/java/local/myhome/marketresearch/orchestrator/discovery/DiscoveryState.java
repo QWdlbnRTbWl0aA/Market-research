@@ -14,6 +14,8 @@ public class DiscoveryState {
     public long nextWatch;
     public long nextSearchAttempt;
     public int iteration=1;
+    public int searchPass=1,passQueryStart;
+    public int pendingListingLimit=2000;
     public int analysisBatchSize=500, pageLimit=20;
     public int samplingPageBudget; // Zero means unbounded; a sampled finish is never natural exhaustion.
     public boolean searchComplete() { return Set.of("EXHAUSTED", "SAMPLING_COMPLETE", "BOUNDED_COMPLETE").contains(searchStatus); }
@@ -41,6 +43,7 @@ public class DiscoveryState {
         public int depth,pages,lowNovelty,total,returned,usable,novel;
         public double parentYield;
         public boolean refined,successful;
+        public int refinementUsableBase=-1;
         public UUID refinementJob;
         public Task refinementRequest;
         public List<Listing> sample=new ArrayList<>();

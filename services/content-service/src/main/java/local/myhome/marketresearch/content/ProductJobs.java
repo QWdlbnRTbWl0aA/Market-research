@@ -3,6 +3,7 @@ package local.myhome.marketresearch.content;
 import java.util.*;
 import local.myhome.marketresearch.contracts.content.ProductDefinition.*;
 import local.myhome.marketresearch.tools.ProviderAccess;
+import local.myhome.marketresearch.tools.JobRecovery;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
@@ -70,6 +71,7 @@ public class ProductJobs {
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS usage_json CLOB");
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS call_outputs CLOB");
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS failure_detail VARCHAR(300)");
+        db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS retry_count INT DEFAULT 0");
         db.execute("ALTER TABLE product_definition_jobs ADD COLUMN IF NOT EXISTS review_key VARCHAR(200)");
         db.update("UPDATE product_definition_jobs SET status='BLOCKED',error='INTERRUPTED_PROVIDER_OPERATION' WHERE status='RUNNING'");
     }
@@ -95,8 +97,8 @@ public class ProductJobs {
         var r=rows.getFirst();return new View(id,r.get("STATUS").toString(),(String)r.get("ERROR"),
             r.get("RESULT")==null?null:json.readValue(stored(r.get("RESULT")),Brief.class),((Number)r.get("NEXT_ATTEMPT")).longValue());
     }
-    public void cancel(UUID id){get(id);db.update("UPDATE product_definition_jobs SET status='CANCELLED' WHERE id=? AND status IN ('ACCEPTED','RUNNING','BLOCKED','WAITING_QUOTA')",id.toString());}
-    public void resume(UUID id){get(id);db.update("UPDATE product_definition_jobs SET status='ACCEPTED',error=NULL WHERE id=? AND status='BLOCKED'",id.toString());}
+    public void cancel(UUID id){get(id);db.update("UPDATE product_definition_jobs SET status='CANCELLED' WHERE id=? AND status IN ('ACCEPTED','RUNNING','BLOCKED','WAITING_QUOTA','WAITING_RETRY')",id.toString());}
+    public void resume(UUID id){get(id);db.update("UPDATE product_definition_jobs SET status='ACCEPTED',error=NULL,next_attempt=0,retry_count=0 WHERE id=? AND status='BLOCKED'",id.toString());}
     public synchronized View reviewAgain(UUID id,String key) {
         require(text(key)&&key.length()<=200,"Review idempotency key required");
         var current=get(id);
@@ -108,10 +110,10 @@ public class ProductJobs {
     }
     @Scheduled(fixedDelayString="${research.product.worker-delay-ms:500}")
     public void tick() {
-        var rows=db.queryForList("SELECT * FROM product_definition_jobs WHERE status IN ('ACCEPTED','WAITING_QUOTA') AND next_attempt<=? FETCH FIRST 1 ROW ONLY",System.currentTimeMillis());
+        var rows=db.queryForList("SELECT * FROM product_definition_jobs WHERE status IN ('ACCEPTED','WAITING_QUOTA','WAITING_RETRY') AND next_attempt<=? FETCH FIRST 1 ROW ONLY",System.currentTimeMillis());
         if(rows.isEmpty())return;
         var row=rows.getFirst();String id=row.get("ID").toString();
-        if(db.update("UPDATE product_definition_jobs SET status='RUNNING',error=NULL WHERE id=? AND status IN ('ACCEPTED','WAITING_QUOTA')",id)!=1)return;
+        if(db.update("UPDATE product_definition_jobs SET status='RUNNING',error=NULL WHERE id=? AND status IN ('ACCEPTED','WAITING_QUOTA','WAITING_RETRY')",id)!=1)return;
         try {
             var request=json.readValue(stored(row.get("PAYLOAD")),Request.class);
             boolean review="REVIEW".equals(row.get("PHASE"));
@@ -150,14 +152,16 @@ public class ProductJobs {
             var result=json.convertValue(answer,Brief.class);
             validate(result,request);
             if(review)db.update("UPDATE product_definition_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(result),id);
-            else db.update("UPDATE product_definition_jobs SET draft=?,phase='REVIEW',status='ACCEPTED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(result),id);
+            else db.update("UPDATE product_definition_jobs SET draft=?,phase='REVIEW',status='ACCEPTED',retry_count=0,next_attempt=0 WHERE id=? AND status='RUNNING'",json.writeValueAsString(result),id);
         } catch(local.myhome.marketresearch.tools.ProviderDeferred waiting) {
             db.update("UPDATE product_definition_jobs SET status='WAITING_QUOTA',error='KNOWN_QUOTA_WAIT',next_attempt=? WHERE id=? AND status='RUNNING'",waiting.retryAt(),id);
         } catch(local.myhome.marketresearch.tools.ProviderBusy waiting) {
             db.update("UPDATE product_definition_jobs SET status='ACCEPTED' WHERE id=? AND status='RUNNING'",id);
         } catch(Exception error) {
-            String detail=error instanceof ResponseStatusException rejection?rejection.getReason():error.getClass().getSimpleName();
-            db.update("UPDATE product_definition_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED',failure_detail=? WHERE id=? AND status='RUNNING'",detail,id);
+            String detail=JobRecovery.detail(error);
+            long retryAt=JobRecovery.retryAt(error,provider.lastUsage(),((Number)row.get("RETRY_COUNT")).intValue());
+            if(retryAt>0)db.update("UPDATE product_definition_jobs SET status='WAITING_RETRY',error='BOUNDED_STAGE_RETRY',failure_detail=?,retry_count=retry_count+1,next_attempt=? WHERE id=? AND status='RUNNING'",detail,retryAt,id);
+            else db.update("UPDATE product_definition_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED',failure_detail=? WHERE id=? AND status='RUNNING'",detail,id);
         }
     }
     static void validate(Brief b,Request request) {
@@ -203,7 +207,7 @@ public class ProductJobs {
     }
     public Map<String,Object> evidence(UUID id) {
         var result=get(id);
-        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json,call_outputs,failure_detail FROM product_definition_jobs WHERE id=?",id.toString());
+        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json,call_outputs,failure_detail,retry_count FROM product_definition_jobs WHERE id=?",id.toString());
         var evidence=new LinkedHashMap<String,Object>();
         evidence.put("request",json.readValue(stored(row.get("PAYLOAD")),Request.class));
         evidence.put("result",result);
@@ -212,6 +216,7 @@ public class ProductJobs {
         evidence.put("usage",row.get("USAGE_JSON")==null?List.of():json.readValue(stored(row.get("USAGE_JSON")),List.class));
         evidence.put("outputs",row.get("CALL_OUTPUTS")==null?List.of():json.readValue(stored(row.get("CALL_OUTPUTS")),List.class));
         evidence.put("failureDetail",row.get("FAILURE_DETAIL"));
+        evidence.put("retryCount",row.get("RETRY_COUNT"));
         return evidence;
     }
     static boolean text(String s){return s!=null&&!s.isBlank();}

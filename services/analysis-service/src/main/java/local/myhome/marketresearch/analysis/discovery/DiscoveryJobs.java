@@ -6,6 +6,7 @@ import java.security.MessageDigest;
 import local.myhome.marketresearch.contracts.analysis.Discovery.*;
 import local.myhome.marketresearch.contracts.analysis.Discovery;
 import local.myhome.marketresearch.tools.ProviderAccess;
+import local.myhome.marketresearch.tools.JobRecovery;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,6 +41,7 @@ public class DiscoveryJobs {
         db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS usage_json CLOB");
         db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS call_outputs CLOB");
         db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS failure_detail VARCHAR(300)");
+        db.execute("ALTER TABLE discovery_jobs ADD COLUMN IF NOT EXISTS retry_count INT DEFAULT 0");
         db.execute("CREATE TABLE IF NOT EXISTS discovery_refinement_cache(cache_key VARCHAR(64) PRIMARY KEY, result CLOB)");
         opportunities=new OpportunityCatalog(db,json);
         // A crash during provider I/O is ambiguous: never silently rebill the same operation.
@@ -71,14 +73,14 @@ public class DiscoveryJobs {
             result!=null&&task.kind().equals("REFINE")?json.readValue(result,Refinement.class):null,
             result!=null&&!task.kind().equals("REFINE")?json.readValue(result,Assessment.class):null,((Number)r.get("NEXT_ATTEMPT")).longValue());
     }
-    public void cancel(UUID id) { get(id);db.update("UPDATE discovery_jobs SET status='CANCELLED' WHERE id=? AND status IN ('ACCEPTED','RUNNING','BLOCKED','WAITING_QUOTA')",id.toString()); }
-    public void resume(UUID id) {get(id);db.update("UPDATE discovery_jobs SET status='ACCEPTED',error=NULL WHERE id=? AND status='BLOCKED'",id.toString());}
+    public void cancel(UUID id) { get(id);db.update("UPDATE discovery_jobs SET status='CANCELLED' WHERE id=? AND status IN ('ACCEPTED','RUNNING','BLOCKED','WAITING_QUOTA','WAITING_RETRY')",id.toString()); }
+    public void resume(UUID id) {get(id);db.update("UPDATE discovery_jobs SET status='ACCEPTED',error=NULL,next_attempt=0,retry_count=0 WHERE id=? AND status='BLOCKED'",id.toString());}
     @Scheduled(fixedDelayString="${research.discovery.worker-delay-ms:500}")
     public void tick() {
-        var jobs=db.queryForList("SELECT id,payload,phase,draft FROM discovery_jobs WHERE status IN ('ACCEPTED','WAITING_QUOTA') AND next_attempt<=? FETCH FIRST 1 ROW ONLY",System.currentTimeMillis());
+        var jobs=db.queryForList("SELECT id,payload,phase,draft,retry_count FROM discovery_jobs WHERE status IN ('ACCEPTED','WAITING_QUOTA','WAITING_RETRY') AND next_attempt<=? FETCH FIRST 1 ROW ONLY",System.currentTimeMillis());
         if(jobs.isEmpty())return;
         var row=jobs.getFirst();String id=row.get("ID").toString();
-        if(db.update("UPDATE discovery_jobs SET status='RUNNING',error=NULL WHERE id=? AND status IN ('ACCEPTED','WAITING_QUOTA')",id)!=1)return;
+        if(db.update("UPDATE discovery_jobs SET status='RUNNING',error=NULL WHERE id=? AND status IN ('ACCEPTED','WAITING_QUOTA','WAITING_RETRY')",id)!=1)return;
         try {
             var request=json.readValue(stored(row.get("PAYLOAD")),Task.class);
             if("REFINE".equals(request.kind())) {
@@ -108,7 +110,7 @@ public class DiscoveryJobs {
                 var draft=json.convertValue(call(id,reassess?"discovery-group-reassessment":"discovery-business",
                     DiscoveryPrompts.ANALYZE+(reassess?"\nThis is an explicitly approved GROUP reassessment after a trend alert. Reuse prior cohort conclusions; do not rescan unchanged listings. Compact listings only ground citations and current price/proxy context. Compare the supplied trend evidence and refreshed shop facts.":""),effective),Assessment.class);
                 validate(draft,effective);
-                db.update("UPDATE discovery_jobs SET draft=?,phase='REVIEW',status='ACCEPTED' WHERE id=? AND status='RUNNING'",json.writeValueAsString(draft),id);
+                db.update("UPDATE discovery_jobs SET draft=?,phase='REVIEW',status='ACCEPTED',retry_count=0,next_attempt=0 WHERE id=? AND status='RUNNING'",json.writeValueAsString(draft),id);
             } else {
                 var draft=json.readValue(stored(row.get("DRAFT")),Assessment.class);
                 var cited=draft.products().stream().flatMap(p->p.listingIds().stream()).collect(java.util.stream.Collectors.toSet());
@@ -128,8 +130,11 @@ public class DiscoveryJobs {
         } catch(local.myhome.marketresearch.tools.ProviderBusy waiting) {
             db.update("UPDATE discovery_jobs SET status='ACCEPTED' WHERE id=? AND status='RUNNING'",id);
         } catch(Exception error) {
-            String detail=error instanceof ResponseStatusException rejection?rejection.getReason():error.getClass().getSimpleName();
-            db.update("UPDATE discovery_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED',failure_detail=? WHERE id=? AND status='RUNNING'",detail,id);
+            String detail=JobRecovery.detail(error);
+            int retries=((Number)row.get("RETRY_COUNT")).intValue();
+            long retryAt=JobRecovery.retryAt(error,provider.lastUsage(),retries);
+            if(retryAt>0)db.update("UPDATE discovery_jobs SET status='WAITING_RETRY',error='BOUNDED_STAGE_RETRY',failure_detail=?,retry_count=retry_count+1,next_attempt=? WHERE id=? AND status='RUNNING'",detail,retryAt,id);
+            else db.update("UPDATE discovery_jobs SET status='BLOCKED',error='PROVIDER_OR_VALIDATION_FAILED',failure_detail=? WHERE id=? AND status='RUNNING'",detail,id);
         }
     }
     private void finish(String id,String result) {db.update("UPDATE discovery_jobs SET result=?,status='SUCCEEDED' WHERE id=? AND status='RUNNING'",result,id);}
@@ -200,7 +205,7 @@ public class DiscoveryJobs {
     }
     public Map<String,Object> evidence(UUID id) {
         var view=get(id);
-        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json,call_outputs,failure_detail FROM discovery_jobs WHERE id=?",id.toString());
+        var row=db.queryForMap("SELECT payload,call_inputs,draft,usage_json,call_outputs,failure_detail,retry_count FROM discovery_jobs WHERE id=?",id.toString());
         var task=json.readValue(stored(row.get("PAYLOAD")),Task.class);
         var evidence=new LinkedHashMap<String,Object>();
         evidence.put("request",task);evidence.put("result",view);
@@ -209,6 +214,7 @@ public class DiscoveryJobs {
         evidence.put("usage",row.get("USAGE_JSON")==null?List.of():json.readValue(stored(row.get("USAGE_JSON")),List.class));
         evidence.put("outputs",row.get("CALL_OUTPUTS")==null?List.of():json.readValue(stored(row.get("CALL_OUTPUTS")),List.class));
         evidence.put("failureDetail",row.get("FAILURE_DETAIL"));
+        evidence.put("retryCount",row.get("RETRY_COUNT"));
         if(view.assessment()!=null)evidence.put("opportunitySupport",opportunities.supportingEvidence(task,view.assessment()));
         return evidence;
     }
