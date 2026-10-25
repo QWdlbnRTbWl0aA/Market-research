@@ -104,8 +104,9 @@ public class DiscoveryJobs {
                 reassess?"":l.description()==null?"":l.description().substring(0,Math.min(160,l.description().length())),
                 reassess||l.tags()==null?List.<String>of():l.tags().stream().limit(5).toList(),
                 l.price(),l.currency(),l.views(),l.favorites(),l.createdAt())).toList();
-            var effective=new Task(request.kind(),request.query(),compact,request.shops(),request.previousFamilies(),
-                request.previousSummaries(),request.branch(),request.reviews(),opportunities.list(request.query()).stream().limit(100).toList());
+            var effective=new Task(request.kind(),request.query(),compact,BusinessContext.shops(compact,request.shops()),request.previousFamilies().stream().limit(100).toList(),
+                BusinessContext.summaries(request.previousSummaries()),request.branch(),BusinessContext.reviews(compact,request.reviews()),
+                BusinessContext.opportunities(opportunities.list(request.query()).stream().limit(100).toList()));
             if("PREPARE".equals(row.get("PHASE"))) {
                 var draft=json.convertValue(call(id,reassess?"discovery-group-reassessment":"discovery-business",
                     DiscoveryPrompts.ANALYZE+(reassess?"\nThis is an explicitly approved GROUP reassessment after a trend alert. Reuse prior cohort conclusions; do not rescan unchanged listings. Compact listings only ground citations and current price/proxy context. Compare the supplied trend evidence and refreshed shop facts.":""),effective),Assessment.class);
@@ -142,6 +143,9 @@ public class DiscoveryJobs {
         prompt = recoveryInstructions(jobId, stage, prompt, evidence);
         var existing=db.queryForObject("SELECT call_inputs FROM discovery_jobs WHERE id=?",String.class,jobId);
         Map<String,Object> inputs=existing==null?new LinkedHashMap<>():json.readValue(existing,Map.class);
+        List<Object> attempts=inputs.get("attemptHistory") instanceof List<?> history?new ArrayList<>(history):new ArrayList<>();
+        if(inputs.containsKey(stage))attempts.add(Map.of("stage",stage,"input",inputs.get(stage)));
+        if(!attempts.isEmpty())inputs.put("attemptHistory",attempts);
         inputs.put(stage,Map.of("instructions",prompt,"evidence",evidence,"modelContext",cacheVersion));
         db.update("UPDATE discovery_jobs SET call_inputs=? WHERE id=?",json.writeValueAsString(inputs),jobId);
         try {
