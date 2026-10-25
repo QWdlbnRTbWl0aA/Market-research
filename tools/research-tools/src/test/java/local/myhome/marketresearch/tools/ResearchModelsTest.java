@@ -15,6 +15,19 @@ import tools.jackson.databind.ObjectMapper;
 class ResearchModelsTest {
     @TempDir Path root;
     ObjectMapper json=new ObjectMapper();
+    @Test void invalidUnicodeCannotReachEitherProviderOrReservePaidBudget() throws Exception {
+        PrivateJson.write(root.resolve("data/provider-ledgers/model-preflight.json"),Map.of("checkedAt",Instant.now().toString()),json);
+        var settings=new ModelSettings(null,null,"gemini-3.5-flash-lite","gpt-5.4-mini",true);
+        var builder=RestClient.builder().baseUrl("https://provider.invalid");
+        var server=MockRestServiceServer.bindTo(builder).build();
+        var models=new ResearchModels(builder.build(),builder.build(),settings,json,root);
+        String broken=("A".repeat(159)+"\uD83C\uDF83").substring(0,160);
+        for(String provider:List.of("openai","gemini")) {
+            var failure=assertThrows(ToolFailure.class,()->models.askOn(provider,"test","JSON",Map.of("description",broken),java.math.BigDecimal.ONE,750_000));
+            assertEquals("Model prompt contains invalid Unicode; no call sent.",failure.getMessage());
+        }
+        assertFalse(Files.exists(root.resolve("data/provider-ledgers/openai-stage.json")));server.verify();
+    }
     @Test void geminiThoughtPartsAreNotParsedAsAnswerJsonAndUsageIsRetained() throws Exception {
         Path key=root.resolve("gemini.env");Files.writeString(key,"GEMINI_LLM_API_KEY=test-only");
         var settings=new ModelSettings(key,null,"gemini-3.5-flash-lite","gpt-5.4-mini",true);

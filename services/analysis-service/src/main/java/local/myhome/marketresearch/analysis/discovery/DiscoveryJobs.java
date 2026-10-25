@@ -7,6 +7,7 @@ import local.myhome.marketresearch.contracts.analysis.Discovery.*;
 import local.myhome.marketresearch.contracts.analysis.Discovery;
 import local.myhome.marketresearch.tools.ProviderAccess;
 import local.myhome.marketresearch.tools.JobRecovery;
+import local.myhome.marketresearch.tools.UnicodeText;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -101,7 +102,7 @@ public class DiscoveryJobs {
             if(fresh.isEmpty()) {finish(id,json.writeValueAsString(new Assessment("No new or meaningfully changed listings",List.of(),List.of(),List.of(),
                 false,"All listing semantics in this cohort are already cached for this scope and protocol")));return;}
             var compact=fresh.stream().map(l->new Listing(l.id(),l.shopId(),l.title(),
-                reassess?"":l.description()==null?"":l.description().substring(0,Math.min(160,l.description().length())),
+                reassess?"":l.description()==null?"":UnicodeText.prefix(l.description(),160),
                 reassess||l.tags()==null?List.<String>of():l.tags().stream().limit(5).toList(),
                 l.price(),l.currency(),l.views(),l.favorites(),l.createdAt())).toList();
             var effective=new Task(request.kind(),request.query(),compact,BusinessContext.shops(compact,request.shops()),request.previousFamilies().stream().limit(100).toList(),

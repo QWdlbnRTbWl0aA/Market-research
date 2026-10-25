@@ -3,6 +3,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 class SearchPolicyTest {
+    @Test void listingTextBoundsNeverSplitAnEmojiInHalf() {
+        var row=Map.<String,Object>of("listing_id",1,"shop_id",11,"listing_type","download",
+            "title","T".repeat(299)+"\uD83C\uDF83","description","D".repeat(2499)+"\uD83C\uDF83");
+        var listing=SearchPolicy.listing(row);
+        assertEquals("T".repeat(299),listing.title());assertEquals("D".repeat(2499),listing.description());
+    }
     @Test void filteringIsStructuralNotABusinessScore() {
         var row=new HashMap<String,Object>(Map.of("listing_id",1,"shop_id",11,"title","A printable","listing_type","physical"));
         assertNull(SearchPolicy.listing(row));row.put("listing_type","download");

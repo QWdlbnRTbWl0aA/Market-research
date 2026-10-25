@@ -45,6 +45,14 @@ class ChatGptModelsTest {
         assertFalse(failure instanceof ChatGptUnavailable);
         assertEquals("REQUEST_STARTED_OR_UNCERTAIN",((Map<?,?>)calls().getFirst()).get("status"));server.verify();
     }
+    @Test void malformedUnicodeIsRejectedBeforeRequestAdmissionAndLedgerReservation() throws Exception {
+        String broken=("A".repeat(159)+"\uD83C\uDF83").substring(0,160);
+        var failure=assertThrows(ToolFailure.class,()->models.ask("discovery-business","JSON",Map.of("description",broken)));
+        assertEquals("ChatGPT prompt contains invalid Unicode; no request sent",failure.getMessage());
+        assertEquals(false,models.usage().get("requestSent"));
+        assertFalse(Files.exists(root.resolve("data/provider-ledgers/chatgpt/usage.json")));
+        server.verify();
+    }
     @Test void explicitSubscriptionLimitFailureIsSafeForGuardedFallback() throws Exception {
         server.expect(requestTo("https://api.invalid/v1/responses")).andRespond(withSuccess(
             "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"subscription_sharing_usage_limit_exceeded\"}}}\n\n",MediaType.TEXT_EVENT_STREAM));
