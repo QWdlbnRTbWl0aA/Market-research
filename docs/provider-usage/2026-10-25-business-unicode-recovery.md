@@ -22,4 +22,9 @@ The correction makes listing and prior-context previews preserve surrogate pairs
 adapters reject invalid Unicode before sending requests or reserving paid usage. Citation schemas,
 semantic validation, job IDs, original requests, source evidence and historical ledgers are preserved.
 Regression tests cover the actual preparation boundary, request admission and preservation of the
-original description. Resume the existing job after deployment; do not submit a replacement cohort.
+original description.
+
+Full `mvn verify` passed. The fix was deployed using immutable jars and stopped-service database
+backups. The existing blocked job retained its original ID and request, then completed generation
+and review successfully for its 100 uncached listings. The orchestrator subsequently started the
+next business cohort. Hourly reporting, spending ceilings and historical usage ledgers remain intact.
